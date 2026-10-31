@@ -1370,7 +1370,7 @@ void Ui::draw_battery_face(const UiModel& m) {
     } else if (mark == Mark::Bolt) {
       // A lightning bolt, row by row: a band falling to the left, a crossbar, a band falling
       // to a point. Drawn grown by `pad` in the background first, then in the text colour.
-      const int bh = in_h * 17 / 20, bw = bh * 3 / 5;
+      const int bh = in_h * 9 / 10, bw = bh * 4 / 5;
       const int by = in_y + (in_h - bh) / 2;
       auto bolt = [&](int grow, uint16_t col) {
         for (int row = -grow; row < bh + grow; ++row) {
@@ -1378,15 +1378,15 @@ void Ui::draw_battery_face(const UiModel& m) {
           int xa, xb;
           if (q < 450) {  // the upper band, from the top right towards the middle
             const int c = bw * 20 / 100 - bw * 32 / 100 * q / 450;
-            xa = c - bw * 17 / 100;
-            xb = c + bw * 17 / 100;
+            xa = c - bw * 19 / 100;
+            xb = c + bw * 19 / 100;
           } else if (q < 560) {  // the crossbar
             xa = -bw * 30 / 100;
             xb = bw * 30 / 100;
           } else {  // the lower band, narrowing to a point at the bottom left
             const int f = (q - 560) * 1000 / 440;
             const int c = bw * 12 / 100 - bw * 32 / 100 * f / 1000;
-            const int half = bw * 17 / 100 * (1000 - f) / 1000;
+            const int half = bw * 19 / 100 * (1000 - f) / 1000;
             xa = c - half;
             xb = c + half;
           }
