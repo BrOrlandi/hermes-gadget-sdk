@@ -64,11 +64,13 @@ constexpr uint32_t kBackoffMs[] = {1000, 2000, 4000, 8000, 15000, 30000};
 constexpr size_t kBackoffSteps = sizeof(kBackoffMs) / sizeof(kBackoffMs[0]);
 
 const char* const kSettingKeys[] = {"name", "server", "token", "talk_mode", "volume", "brightness", "screen_timeout", "battery_display", "battery_estimate", "language", "wifi_ssid", "wifi_pass",
-                                    "face_down_sleep", "clock", "time_format", "touch_wake", "battery_alert"};
+                                    "face_down_sleep", "clock", "time_format", "touch_wake", "battery_alert", "battery_alert_sound"};
 
 // NVS limits storage keys to 15 characters; keep the public setting name unchanged.
 std::string_view setting_storage_key(std::string_view key) {
-  return key == "battery_estimate" ? std::string_view("batt_estimate") : key;
+  return key == "battery_estimate"      ? std::string_view("batt_estimate")
+         : key == "battery_alert_sound" ? std::string_view("batt_alert_snd")
+                                        : key;
 }
 
 // The `battery_alert` setting: "off", or up to three distinct percentages from
@@ -222,6 +224,7 @@ void App::load_settings() {
       if (battery_alert_) dismiss_battery_alert();
     }
   }
+  battery_alert_sound_ = setting("battery_alert_sound", "on") != "off";
   const std::string language = setting("language", "en");
   lang_auto_ = language == "auto";
   lang_ = lang_auto_ ? hermes_lang_.value_or(i18n::Lang::En) : i18n::parse(language).value_or(i18n::Lang::En);
@@ -2418,6 +2421,8 @@ std::string App::console(std::string_view raw) {
       return "@error touch_wake must be on or off";
     if (key == "battery_alert" && !value.empty() && value != "off" && !parse_battery_alert(value, nullptr))
       return "@error battery_alert must be off or up to 3 percentages from 1 to 50, like 10,5";
+    if (key == "battery_alert_sound" && !value.empty() && value != "on" && value != "off")
+      return "@error battery_alert_sound must be on or off";
     if (key == "clock" && !value.empty() &&
         (value.size() > 4 || value.find_first_not_of("0123456789") != std::string::npos ||
          (std::atoi(value.c_str()) != 0 && (std::atoi(value.c_str()) < 5 || std::atoi(value.c_str()) > 3600))))

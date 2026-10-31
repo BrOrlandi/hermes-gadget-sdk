@@ -20,6 +20,8 @@ constexpr uint32_t kBatteryAlertMs = 30000;
 // A spent alert level rearms once a charger lifts the reading this far above it, so
 // a percentage that wobbles across a level, or a short time on USB, never repeats it.
 constexpr int kBatteryAlertRearm = 5;
+// The low battery alert's sound: two falling notes. A placeholder until the sound is chosen.
+constexpr Tone kLowBatteryTones[] = {{660, 150, 80, 7000}, {440, 220, 0, 7000}};
 
 }  // namespace
 
@@ -133,6 +135,17 @@ void App::battery_alert_check() {
   wake_display();
   if (ui_) ui_->invalidate();
   update_model();
+  if (battery_alert_sound_) play_tones(kLowBatteryTones, sizeof(kLowBatteryTones) / sizeof(kLowBatteryTones[0]));
+}
+
+void App::play_tones(const Tone* tones, size_t count) {
+  if (!hal_.speaker || in_stream_ >= 0 || speaking() || hal_.speaker->busy() || mode_ != Mode::Idle || alarm_ ||
+      face_down_)
+    return;
+  const auto pcm = synth_tones(tones, count, profile_.speaker_rate);
+  if (pcm.empty() || !hal_.speaker->begin(profile_.speaker_rate)) return;
+  hal_.speaker->write(pcm.data(), pcm.size());
+  hal_.speaker->end();
 }
 
 void App::dismiss_battery_alert() {

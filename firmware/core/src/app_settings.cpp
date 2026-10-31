@@ -70,6 +70,7 @@ void App::settings_input(Button button, bool pressed) {
         case Menu::Profile: return agent_profiles_.size() > 1;
         case Menu::Power: return hal_.power != nullptr;
         case Menu::BatteryAlert: return hal_.power != nullptr && hal_.display != nullptr;
+        case Menu::BatteryAlertSound: return hal_.power != nullptr && hal_.display != nullptr && hal_.speaker != nullptr;
         case Menu::TouchWake: return profile_.touch_screen && profile_.wake_key && hal_.display != nullptr;
         case Menu::FaceDownSleep: return can_sleep_face_down();
         case Menu::Clock: return hal_.display != nullptr;
@@ -151,6 +152,9 @@ void App::settings_input(Button button, bool pressed) {
       console(std::string("set battery_alert ") + next);
       break;
     }
+    case Menu::BatteryAlertSound:
+      console(battery_alert_sound_ ? "set battery_alert_sound off" : "set battery_alert_sound on");
+      break;
     case Menu::TouchWake:
       console(touch_wake_ ? "set touch_wake off" : "set touch_wake on");
       break;
@@ -308,6 +312,10 @@ void App::settings_model() {
       m.body = levels.empty() ? std::string(tr(Msg::BatteryAlertOff)) : tr(Msg::BatteryAlertAt, {levels});
       break;
     }
+    case Menu::BatteryAlertSound:
+      m.detail = tr(Msg::BatteryAlertSound);
+      m.body = tr(battery_alert_sound_ ? Msg::BatteryAlertSoundOn : Msg::BatteryAlertSoundOff);
+      break;
     case Menu::TouchWake:
       m.detail = tr(Msg::TouchWake);
       m.body = tr(touch_wake_ ? Msg::TouchWakeOn : Msg::TouchWakeOff);

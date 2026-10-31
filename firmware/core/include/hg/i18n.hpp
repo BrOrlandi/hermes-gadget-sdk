@@ -73,6 +73,9 @@ namespace hg::i18n {
   X(BatteryAlert,           "Low battery alert") \
   X(BatteryAlertOff,        "Off\nSelect to light the screen when the battery runs low.") \
   X(BatteryAlertAt,         "At {0}\nOn battery, the screen lights once at each.") \
+  X(BatteryAlertSound,      "Low battery sound") \
+  X(BatteryAlertSoundOn,    "On\nThe low battery alert beeps.") \
+  X(BatteryAlertSoundOff,   "Off\nThe low battery alert is silent.") \
   X(TouchWake,              "Touch wakes screen") \
   X(TouchWakeOn,            "On\nA touch lights the dark screen.") \
   X(TouchWakeOff,           "Off\nOnly a button lights the dark screen.") \
