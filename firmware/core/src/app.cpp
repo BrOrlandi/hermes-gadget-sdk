@@ -1973,7 +1973,7 @@ void App::update_model() {
   m.settings_hold = settings_hold_live();
   m.timer_permille = timer_permille();
   m.flash = false;
-  m.battery = -1;
+  m.battery = m.face_battery = -1;
   m.battery_charging = m.battery_low = false;
   m.battery_icon = battery_display_ != BatteryIndicator::Percentage;
   m.battery_text = battery_display_ != BatteryIndicator::Icon;
@@ -2072,19 +2072,18 @@ void App::update_model() {
     m.screen = Screen::LowBattery;
     m.headline = std::to_string(battery_alert_percent_) + "%";
     m.detail = std::string(tr(Msg::LowBatteryTitle)) + "\n" + tr(Msg::ConnectUsbToCharge);
-    m.battery = static_cast<int8_t>(battery_alert_percent_);
+    m.face_battery = static_cast<int8_t>(battery_alert_percent_);
     m.hint.clear();
     if (!display_sleeping_) render(m);
     return;
   } else if (charging_notice_) {
     // The level as it reads now; a voltage estimate reads high on a charger, so it shows none.
-    m.screen = Screen::Card;
-    m.hero = true;
-    m.caption_lines = kCaptionLines;
-    m.headline = tr(Msg::Charging);
+    m.screen = Screen::Charging;
     const auto percent = display_battery_percent();
-    m.detail = percent && !battery_is_estimated() ? tr(Msg::ChargingLevel, {std::to_string(*percent)})
-                                                  : std::string(tr(Msg::UsbPower));
+    const bool level = percent && !battery_is_estimated();
+    m.headline = level ? std::to_string(*percent) + "%" : std::string();
+    m.detail = tr(level ? Msg::Charging : Msg::UsbPower);
+    m.face_battery = level ? static_cast<int8_t>(std::min<int>(*percent, 100)) : int8_t(-1);
     m.hint.clear();
     if (!display_sleeping_) render(m);
     return;

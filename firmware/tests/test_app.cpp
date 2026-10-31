@@ -2475,7 +2475,7 @@ TEST("battery alert: each level lights the dark screen once per discharge, and a
   CHECK(r.app.screen() == hg::Screen::LowBattery);
   CHECK_EQ(r.app.model().headline, std::string("10%"));
   CHECK_EQ(r.app.model().detail, std::string("Low battery\nConnect USB to charge"));
-  CHECK_EQ(int(r.app.model().battery), 10);
+  CHECK_EQ(int(r.app.model().face_battery), 10);
   CHECK(r.app.model().hint.empty());
   r.app.on_button(hg::Button::Talk, true);  // closes it, and the press talks as it would on Ready
   CHECK_EQ(int(r.app.battery_alert()), 0);
@@ -2720,9 +2720,10 @@ TEST("charging notice: plugging in lights the dark screen with the level, which 
   r.advance(200);  // a dark screen notices USB within the 100 ms supply poll
   CHECK(r.app.charging_notice());
   CHECK_EQ(r.fake.brightness, 100);
-  CHECK(r.app.screen() == hg::Screen::Card);
-  CHECK_EQ(r.app.model().headline, std::string("Charging"));
-  CHECK_EQ(r.app.model().detail, std::string("Battery at 42%"));
+  CHECK(r.app.screen() == hg::Screen::Charging);
+  CHECK_EQ(r.app.model().headline, std::string("42%"));
+  CHECK_EQ(r.app.model().detail, std::string("Charging"));
+  CHECK_EQ(int(r.app.model().face_battery), 42);
   wait(5000);
   CHECK(!r.app.charging_notice());
   CHECK(r.app.screen() == hg::Screen::Ready);
@@ -2735,7 +2736,7 @@ TEST("charging notice: plugging in lights the dark screen with the level, which 
   CHECK_EQ(r.fake.brightness, 0);
 }
 
-TEST("charging notice: replaces the low battery alert, closes with a press, and goes back dark without a timeout") {
+TEST("charging notice: replaces the low battery alert, a press closes it and acts, and no timeout darkens it back") {
   AlertPower battery;
   Rig r;
   r.hal.power = &battery;
@@ -2749,10 +2750,12 @@ TEST("charging notice: replaces the low battery alert, closes with a press, and 
   r.advance(5000);
   CHECK_EQ(int(r.app.battery_alert()), 0);
   CHECK(r.app.charging_notice());
-  r.app.on_button(hg::Button::Talk, true);  // closes it, and records nothing
-  r.app.on_button(hg::Button::Talk, false);
+  r.app.on_button(hg::Button::Talk, true);  // closes it, and talks as on Ready
   CHECK(!r.app.charging_notice());
-  CHECK(!r.fake.mic_on);
+  CHECK(r.fake.mic_on);
+  r.app.on_button(hg::Button::Cancel, true);
+  r.app.on_button(hg::Button::Cancel, false);
+  r.app.on_button(hg::Button::Talk, false);
   // No screen timeout: a screen the power key darkened goes dark again after the notice.
   struct : AlertPower {
     int presses = 0;
