@@ -25,6 +25,8 @@ constexpr int kBatteryAlertRearm = 5;
 constexpr Tone kLowBatteryTones[] = {{880, 120, 80, 8000}, {660, 160, 0, 8000}};
 // Plugging in shows the charging notice this long; the screen then times out as usual.
 constexpr uint32_t kChargingNoticeMs = 5000;
+// Plugging in's sound, when charging_sound is on: a rising 660/990 Hz chirp.
+constexpr Tone kChargingTones[] = {{660, 80, 20, 8000}, {990, 140, 0, 8000}};
 
 }  // namespace
 
@@ -158,16 +160,17 @@ void App::close_notices_for_input() {
 void App::note_supply(std::optional<bool> plugged) {
   const bool plugged_in = plugged == true && plugged_ == false;
   plugged_ = plugged;
-  if (!plugged_in || !charging_notice_enabled_ || !hal_.display || face_down_ || alarm_ || phase_ == Phase::Boot ||
-      settings_open() || screen_busy())
-    return;
-  // A dark screen with no timeout to darken it again goes dark when the notice ends.
-  charging_notice_darkens_ = display_sleeping_ && !screen_timeout_ms_;
-  charging_notice_ = true;
-  charging_notice_until_ = now() + kChargingNoticeMs;
-  wake_display();
-  if (ui_) ui_->invalidate();
-  update_model();
+  if (!plugged_in || phase_ == Phase::Boot) return;
+  if (charging_notice_enabled_ && hal_.display && !face_down_ && !alarm_ && !settings_open() && !screen_busy()) {
+    // A dark screen with no timeout to darken it again goes dark when the notice ends.
+    charging_notice_darkens_ = display_sleeping_ && !screen_timeout_ms_;
+    charging_notice_ = true;
+    charging_notice_until_ = now() + kChargingNoticeMs;
+    wake_display();
+    if (ui_) ui_->invalidate();
+    update_model();
+  }
+  if (charging_sound_) play_tones(kChargingTones, sizeof(kChargingTones) / sizeof(kChargingTones[0]));
 }
 
 void App::dismiss_charging_notice(bool darken) {

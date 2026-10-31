@@ -426,7 +426,7 @@ class App {
   bool lang_auto_ = false;
   std::optional<i18n::Lang> hermes_lang_;  // from the last `welcome` that named one this firmware has
   enum class Menu : uint8_t { Closed, Volume, Brightness, TalkMode, Profile, Microphone, Speaker, Display, Inputs,
-                              Info, Power, BatteryAlert, BatteryAlertSound, ChargingNotice, IdleTimer, TouchWake, FaceDownSleep, Clock, PowerOff, WifiSetup, Phone, Language, Back };
+                              Info, Power, BatteryAlert, BatteryAlertSound, ChargingNotice, ChargingSound, IdleTimer, TouchWake, FaceDownSleep, Clock, PowerOff, WifiSetup, Phone, Language, Back };
   enum class HardwareCheck : uint8_t { None, Microphone, Speaker, Display, Inputs };
   Menu menu_ = Menu::Closed;
   HardwareCheck hardware_check_ = HardwareCheck::None;
@@ -482,6 +482,7 @@ class App {
   void play_tones(const Tone* tones, size_t count);
   // The `charging_notice` setting: plugging in lights the screen with the level for a moment.
   bool charging_notice_enabled_ = true;
+  bool charging_sound_ = false;           // the `charging_sound` setting: plugging in chirps
   bool charging_notice_ = false;          // on screen
   bool charging_notice_darkens_ = false;  // it lit a dark screen that no timeout will darken again
   uint32_t charging_notice_until_ = 0;
