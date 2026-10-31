@@ -168,7 +168,9 @@ class App {
   // calls this at touch-down, so its hit tests see the screen underneath).
   void close_notices_for_input();
   // The charging notice is on screen: USB was just plugged in.
-  bool charging_notice() const { return charging_notice_; }
+  bool charging_notice() const { return power_notice_ == PowerNotice::Charging; }
+  // The full battery notice is on screen.
+  bool charged_notice() const { return power_notice_ == PowerNotice::Charged; }
   std::string agent_profile_name() const;
   // Returns true when this input only wakes a sleeping display.
   bool wake_display();
@@ -426,7 +428,7 @@ class App {
   bool lang_auto_ = false;
   std::optional<i18n::Lang> hermes_lang_;  // from the last `welcome` that named one this firmware has
   enum class Menu : uint8_t { Closed, Volume, Brightness, TalkMode, Profile, Microphone, Speaker, Display, Inputs,
-                              Info, Power, BatteryAlert, BatteryAlertSound, ChargingNotice, ChargingSound, IdleTimer, TouchWake, FaceDownSleep, Clock, PowerOff, WifiSetup, Phone, Language, Back };
+                              Info, Power, BatteryAlert, BatteryAlertSound, ChargingNotice, ChargingSound, ChargedNotice, ChargedSound, IdleTimer, TouchWake, FaceDownSleep, Clock, PowerOff, WifiSetup, Phone, Language, Back };
   enum class HardwareCheck : uint8_t { None, Microphone, Speaker, Display, Inputs };
   Menu menu_ = Menu::Closed;
   HardwareCheck hardware_check_ = HardwareCheck::None;
@@ -483,11 +485,21 @@ class App {
   // The `charging_notice` setting: plugging in lights the screen with the level for a moment.
   bool charging_notice_enabled_ = true;
   bool charging_sound_ = false;           // the `charging_sound` setting: plugging in chirps
-  bool charging_notice_ = false;          // on screen
+  // The `charged_notice` and `charged_sound` settings: a full battery on USB lights the
+  // screen and chimes, once per charge.
+  bool charged_notice_enabled_ = true, charged_sound_ = true;
+  // The notice on screen for a few seconds: USB plugged in, or the battery full.
+  enum class PowerNotice : uint8_t { None, Charging, Charged };
+  PowerNotice power_notice_ = PowerNotice::None;
   bool charging_notice_darkens_ = false;  // it lit a dark screen that no timeout will darken again
   uint32_t charging_notice_until_ = 0;
   std::optional<bool> plugged_;           // the last known supply: true on USB, unknown until read
+  // This charge: the battery was seen charging (or below 100% without a charging signal),
+  // and the full notice has had its turn. Both reset when USB goes.
+  bool charge_seen_ = false, charged_done_ = false;
   void note_supply(std::optional<bool> plugged);
+  void charged_check();
+  bool show_power_notice(PowerNotice notice);
   void dismiss_charging_notice(bool darken);
   bool display_dimmed_ = false, display_sleeping_ = false, power_off_armed_ = false;
   bool dozing_ = false, on_battery_ = false;

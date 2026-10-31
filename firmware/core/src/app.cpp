@@ -64,7 +64,7 @@ constexpr uint32_t kBackoffMs[] = {1000, 2000, 4000, 8000, 15000, 30000};
 constexpr size_t kBackoffSteps = sizeof(kBackoffMs) / sizeof(kBackoffMs[0]);
 
 const char* const kSettingKeys[] = {"name", "server", "token", "talk_mode", "volume", "brightness", "screen_timeout", "battery_display", "battery_estimate", "language", "wifi_ssid", "wifi_pass",
-                                    "face_down_sleep", "clock", "time_format", "touch_wake", "battery_alert", "battery_alert_sound", "charging_notice", "charging_sound"};
+                                    "face_down_sleep", "clock", "time_format", "touch_wake", "battery_alert", "battery_alert_sound", "charging_notice", "charging_sound", "charged_notice", "charged_sound"};
 
 // NVS limits storage keys to 15 characters; keep the public setting name unchanged.
 std::string_view setting_storage_key(std::string_view key) {
@@ -227,6 +227,8 @@ void App::load_settings() {
   battery_alert_sound_ = setting("battery_alert_sound", "on") != "off";
   charging_notice_enabled_ = setting("charging_notice", "on") != "off";
   charging_sound_ = setting("charging_sound", "off") == "on";
+  charged_notice_enabled_ = setting("charged_notice", "on") != "off";
+  charged_sound_ = setting("charged_sound", "on") != "off";
   const std::string language = setting("language", "en");
   lang_auto_ = language == "auto";
   lang_ = lang_auto_ ? hermes_lang_.value_or(i18n::Lang::En) : i18n::parse(language).value_or(i18n::Lang::En);
@@ -2077,7 +2079,15 @@ void App::update_model() {
     m.hint.clear();
     if (!display_sleeping_) render(m);
     return;
-  } else if (charging_notice_) {
+  } else if (power_notice_ == PowerNotice::Charged) {
+    m.screen = Screen::Charged;
+    m.headline = "100%";
+    m.detail = std::string(tr(Msg::BatteryFull)) + "\n" + tr(Msg::YouCanUnplug);
+    m.face_battery = 100;
+    m.hint.clear();
+    if (!display_sleeping_) render(m);
+    return;
+  } else if (power_notice_ == PowerNotice::Charging) {
     // The level as it reads now; a voltage estimate reads high on a charger, so it shows none.
     m.screen = Screen::Charging;
     const auto percent = display_battery_percent();
@@ -2435,6 +2445,10 @@ std::string App::console(std::string_view raw) {
       return "@error charging_notice must be on or off";
     if (key == "charging_sound" && !value.empty() && value != "on" && value != "off")
       return "@error charging_sound must be on or off";
+    if (key == "charged_notice" && !value.empty() && value != "on" && value != "off")
+      return "@error charged_notice must be on or off";
+    if (key == "charged_sound" && !value.empty() && value != "on" && value != "off")
+      return "@error charged_sound must be on or off";
     if (key == "clock" && !value.empty() &&
         (value.size() > 4 || value.find_first_not_of("0123456789") != std::string::npos ||
          (std::atoi(value.c_str()) != 0 && (std::atoi(value.c_str()) < 5 || std::atoi(value.c_str()) > 3600))))

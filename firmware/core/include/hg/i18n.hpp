@@ -82,6 +82,14 @@ namespace hg::i18n {
   X(ChargingSound,          "Charging sound") \
   X(ChargingSoundOn,        "On\nPlugging in USB chirps.") \
   X(ChargingSoundOff,       "Off\nPlugging in USB is silent.") \
+  X(ChargedNotice,          "Full battery screen") \
+  X(ChargedNoticeOn,        "On\nA full battery lights the screen once per charge.") \
+  X(ChargedNoticeOff,       "Off\nA full battery leaves the screen as it is.") \
+  X(ChargedSound,           "Full battery sound") \
+  X(ChargedSoundOn,         "On\nA full battery chimes once per charge.") \
+  X(ChargedSoundOff,        "Off\nA full battery is silent.") \
+  X(BatteryFull,            "Battery full") \
+  X(YouCanUnplug,           "You can unplug") \
   X(TouchWake,              "Touch wakes screen") \
   X(TouchWakeOn,            "On\nA touch lights the dark screen.") \
   X(TouchWakeOff,           "Off\nOnly a button lights the dark screen.") \

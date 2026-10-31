@@ -27,6 +27,8 @@ constexpr Tone kLowBatteryTones[] = {{880, 120, 80, 8000}, {660, 160, 0, 8000}};
 constexpr uint32_t kChargingNoticeMs = 5000;
 // Plugging in's sound, when charging_sound is on: a rising 660/990 Hz chirp.
 constexpr Tone kChargingTones[] = {{660, 80, 20, 8000}, {990, 140, 0, 8000}};
+// A full battery's sound: a soft rising 784/1046 Hz chime.
+constexpr Tone kChargedTones[] = {{784, 140, 40, 7000}, {1046, 240, 0, 7000}};
 
 }  // namespace
 
@@ -152,7 +154,42 @@ void App::play_tones(const Tone* tones, size_t count) {
 
 void App::close_notices_for_input() {
   if (battery_alert_) dismiss_battery_alert();
-  if (charging_notice_) dismiss_charging_notice(false);
+  if (power_notice_ != PowerNotice::None) dismiss_charging_notice(false);
+}
+
+// Lights the screen with a notice for a few seconds, unless the screen is in use or dark
+// on purpose (face down). False when it could not show.
+bool App::show_power_notice(PowerNotice notice) {
+  if (!hal_.display || face_down_ || alarm_ || settings_open() || screen_busy()) return false;
+  // A dark screen with no timeout to darken it again goes dark when the notice ends.
+  charging_notice_darkens_ = (display_sleeping_ && !screen_timeout_ms_) ||
+                             (power_notice_ != PowerNotice::None && charging_notice_darkens_);
+  power_notice_ = notice;
+  charging_notice_until_ = now() + kChargingNoticeMs;
+  wake_display();
+  if (ui_) ui_->invalidate();
+  update_model();
+  return true;
+}
+
+// Each reading on USB: the battery is full once a charge ends (the charging signal goes
+// false) or the percentage reaches 100. Once per charge, and only after charging was seen,
+// so plugging in a full battery says nothing. A busy screen holds it for a later reading.
+void App::charged_check() {
+  if (plugged_ != true || !power_status_) {
+    charge_seen_ = charged_done_ = false;
+    return;
+  }
+  if (charged_done_ || phase_ == Phase::Boot) return;
+  const auto& p = *power_status_;
+  const auto percent = display_battery_percent();
+  const bool gauge = percent && !battery_is_estimated();  // an estimate reads high on a charger
+  if (p.charging == true || (!p.charging && gauge && *percent < 100)) charge_seen_ = true;
+  const bool full = charge_seen_ && (p.charging == false || (gauge && *percent >= 100));
+  if (!full) return;
+  if (charged_notice_enabled_ && !show_power_notice(PowerNotice::Charged)) return;
+  charged_done_ = true;
+  if (charged_sound_) play_tones(kChargedTones, sizeof(kChargedTones) / sizeof(kChargedTones[0]));
 }
 
 // Each supply reading: USB coming in after a known battery-only reading lights the
@@ -161,21 +198,13 @@ void App::note_supply(std::optional<bool> plugged) {
   const bool plugged_in = plugged == true && plugged_ == false;
   plugged_ = plugged;
   if (!plugged_in || phase_ == Phase::Boot) return;
-  if (charging_notice_enabled_ && hal_.display && !face_down_ && !alarm_ && !settings_open() && !screen_busy()) {
-    // A dark screen with no timeout to darken it again goes dark when the notice ends.
-    charging_notice_darkens_ = display_sleeping_ && !screen_timeout_ms_;
-    charging_notice_ = true;
-    charging_notice_until_ = now() + kChargingNoticeMs;
-    wake_display();
-    if (ui_) ui_->invalidate();
-    update_model();
-  }
+  if (charging_notice_enabled_) show_power_notice(PowerNotice::Charging);
   if (charging_sound_) play_tones(kChargingTones, sizeof(kChargingTones) / sizeof(kChargingTones[0]));
 }
 
 void App::dismiss_charging_notice(bool darken) {
-  if (!charging_notice_) return;
-  charging_notice_ = false;
+  if (power_notice_ == PowerNotice::None) return;
+  power_notice_ = PowerNotice::None;
   if (ui_) ui_->invalidate();
   update_model();
   if (darken && charging_notice_darkens_) {
@@ -205,8 +234,9 @@ void App::power_tick() {
     } else {
       note_supply(std::nullopt);
     }
+    charged_check();
   }
-  if (charging_notice_ && (static_cast<int32_t>(now() - charging_notice_until_) >= 0 || screen_busy() || alarm_ ||
+  if (power_notice_ != PowerNotice::None && (static_cast<int32_t>(now() - charging_notice_until_) >= 0 || screen_busy() || alarm_ ||
                            face_down_ || settings_open() || plugged_ != true))
     dismiss_charging_notice(static_cast<int32_t>(now() - charging_notice_until_) >= 0);
   // Something else took the screen, or its time ran out: the alert goes.
