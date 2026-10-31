@@ -140,7 +140,7 @@ void App::play_tones(const Tone* tones, size_t count) {
   if (!hal_.speaker || in_stream_ >= 0 || speaking() || hal_.speaker->busy() || mode_ != Mode::Idle || alarm_ ||
       face_down_)
     return;
-  const auto pcm = synth_tones(tones, count, profile_.speaker_rate);
+  const auto pcm = synth_tones(tones, count, profile_.speaker_rate, kToneLeadMs);
   if (pcm.empty() || !hal_.speaker->begin(profile_.speaker_rate)) return;
   hal_.speaker->write(pcm.data(), pcm.size());
   hal_.speaker->end();

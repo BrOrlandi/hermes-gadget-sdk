@@ -5,13 +5,14 @@
 
 namespace hg {
 
-std::vector<int16_t> synth_tones(const Tone* tones, size_t count, uint32_t rate) {
+std::vector<int16_t> synth_tones(const Tone* tones, size_t count, uint32_t rate, uint16_t lead_ms) {
   constexpr double kPi = 3.14159265358979323846;
-  size_t total = 0;
+  const size_t lead = static_cast<size_t>(rate) * lead_ms / 1000;
+  size_t total = lead;
   for (size_t t = 0; t < count; ++t) total += static_cast<size_t>(rate) * (tones[t].ms + tones[t].gap_ms) / 1000;
   std::vector<int16_t> pcm(total, 0);
   const size_t ramp = std::max<size_t>(1, static_cast<size_t>(rate) * 5 / 1000);
-  size_t at = 0;
+  size_t at = lead;
   for (size_t t = 0; t < count; ++t) {
     const Tone& tone = tones[t];
     const size_t n = static_cast<size_t>(rate) * tone.ms / 1000;
