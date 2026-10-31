@@ -2611,7 +2611,7 @@ TEST("battery alert: beeps by default, once with each alert, and battery_alert_s
   battery.on_battery(10);
   r.advance(5000);
   CHECK_EQ(int(r.app.battery_alert()), 10);
-  CHECK(r.fake.spk_samples > before);  // the sound went to the speaker
+  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * 360 / 1000));  // 880 Hz 120 ms, 80 ms, 660 Hz 160 ms
   const size_t after_first = r.fake.spk_samples;
   r.advance(5000);
   CHECK_EQ(r.fake.spk_samples, after_first);  // once, not with each reading
