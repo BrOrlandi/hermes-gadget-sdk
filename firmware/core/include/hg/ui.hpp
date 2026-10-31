@@ -40,6 +40,7 @@ enum class Screen : uint8_t {
   Profiles,   // the Hermes profiles to choose from: rows in `dash` from `scroll`; `detail` labels More
   Alarm,      // TIMER DONE: the whole panel until dismissed (App::start_alarm)
   Clock,      // the resting clock face: the time, the date and the mascot (App::clock_tick)
+  LowBattery, // the low battery alert: a red battery icon, `headline` (the percentage) large, `detail` below
 };
 
 enum class Link : uint8_t { Offline, Network, Connecting, Online };
@@ -219,6 +220,7 @@ class Ui {
   void push_band_change(const ArcSweep& from, const ArcSweep& to);
   void draw_alarm(const UiModel& m);
   void draw_clock(const UiModel& m);
+  void draw_low_battery(const UiModel& m);
   Display& display_;
   DisplayInfo panel_;
   DisplayInfo info_;
@@ -252,7 +254,7 @@ class Ui {
   // The screen that owns the whole panel right now, and the hash of what it drew.
   // Leaving it repaints everything (draw_frame); each face repaints when the flag
   // is not itself, so Clock -> Alarm -> Clock in one minute still redraws.
-  enum class FullFace : uint8_t { None, Alarm, Clock };
+  enum class FullFace : uint8_t { None, Alarm, Clock, LowBattery };
   FullFace full_face_ = FullFace::None;
   uint32_t face_hash_ = 0;
 };

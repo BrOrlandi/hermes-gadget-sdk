@@ -6,6 +6,7 @@
 // thread. Nothing here blocks.
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -465,6 +466,8 @@ class App {
   uint8_t battery_alert_spent_ = 0;    // the lowest level alerted this discharge, 0 = none
   uint8_t battery_alert_ = 0;          // the level on screen, 0 = none
   uint8_t battery_alert_percent_ = 0;  // the reading it showed
+  // The battery indicator turns red at or below this: 15%, or the highest alert level when higher.
+  uint8_t low_battery_level() const { return std::max<uint8_t>(15, battery_alert_levels_[0]); }
   uint32_t battery_alert_until_ = 0;
   bool battery_alert_sound_ = true;    // the `battery_alert_sound` setting
   void battery_alert_check();

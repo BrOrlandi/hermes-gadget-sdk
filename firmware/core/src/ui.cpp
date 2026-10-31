@@ -219,6 +219,7 @@ const char* screen_name(Screen s) {
     case Screen::Profiles: return "profiles";
     case Screen::Alarm: return "alarm";
     case Screen::Clock: return "clock";
+    case Screen::LowBattery: return "low_battery";
   }
   return "unknown";
 }
@@ -389,6 +390,10 @@ void Ui::draw_frame(const UiModel& m) {
   }
   if (m.screen == Screen::Clock) {
     draw_clock(m);
+    return;
+  }
+  if (m.screen == Screen::LowBattery) {
+    draw_low_battery(m);
     return;
   }
   if (full_face_ != FullFace::None) {  // a face painted the whole panel: everything comes back
@@ -694,6 +699,7 @@ void Ui::draw_indicator(Canvas& c, const UiModel& m, int cx, int cy, int r) {
     case Screen::Profiles:
     case Screen::Alarm:
     case Screen::Clock:
+    case Screen::LowBattery:
       break;
   }
 }
@@ -1268,6 +1274,107 @@ void Ui::draw_alarm(const UiModel& m) {
       const std::string shown = fit(label, cols);
       panel.text(cx - Canvas::text_width(shown, ls) / 2, y, shown, ls, ink);
     }
+  });
+}
+
+// The low battery alert (App::battery_alert_check). The whole panel: a battery outline
+// with its terminal, the charge left as a bar from the left, and a "!" in the middle,
+// all in red; the percentage large below it, then the two lines of `detail` and the
+// hint at the bottom. On a round panel the group keeps to the square inside the glass.
+// The "!" sits in a gap cut out of the bar, so the icon reads by shape, not only colour.
+void Ui::draw_low_battery(const UiModel& m) {
+  band_ = ArcSweep{};
+  band_shown_ = false;
+  const uint32_t key = Hash().add(m.headline).add(m.detail).add(m.hint).val(m.battery).val(m.lang).get();
+  if (valid_ && full_face_ == FullFace::LowBattery && key == face_hash_) return;
+  full_face_ = FullFace::LowBattery;
+  face_hash_ = key;
+  valid_ = true;  // leaving it repaints everything anyway (draw_frame)
+
+  const int s = layout_.scale;
+  const int W = panel_.width, H = panel_.height;
+  const int cx = W / 2, cy = H / 2;
+  const int hy = oy_ + info_.height - layout_.bottom_h;  // the hint's band
+  // The box the group keeps to: the inscribed square on a round panel.
+  const int box_w = panel_.round ? W * 70 / 100 : W - 8 * s;
+  const int lo = panel_.round ? cy - box_w / 2 : 4 * s;
+  const int hi = panel_.round ? std::min(cy + box_w / 2, hy) : hy - 2 * s;
+
+  std::string line1 = m.detail, line2;
+  if (const size_t nl = m.detail.find('\n'); nl != std::string::npos) {
+    line1 = m.detail.substr(0, nl);
+    line2 = m.detail.substr(nl + 1);
+  }
+  const int ls1 = s + 1, ls2 = s;  // "Low battery" a step above the base scale, the advice at it
+  const int gap = 5 * s;
+  const int text_h = Canvas::line_height(ls1) + (line2.empty() ? 0 : Canvas::line_height(ls2));
+
+  // The largest percentage scale (and the icon sized from the box) that fits the box's height.
+  int ps = 1, iw = 0, ih = 0;
+  for (int k = 12; k >= 1; --k) {
+    const int pw = Canvas::text_width(m.headline, k);
+    if (pw > box_w * 3 / 4) continue;
+    const int w = std::min(box_w * 3 / 4, (hi - lo) * 9 / 10);
+    const int h = w * 9 / 20;
+    if (h + gap + Canvas::line_height(k) + gap + text_h <= hi - lo || k == 1) {
+      ps = k;
+      iw = w;
+      ih = h;
+      // Shrink the icon until the whole group fits, keeping it at least as tall as the number.
+      while (iw > 16 && ih + gap + Canvas::line_height(k) + gap + text_h > hi - lo) {
+        iw = iw * 9 / 10;
+        ih = iw * 9 / 20;
+      }
+      break;
+    }
+  }
+  const int ph = Canvas::line_height(ps);
+  const int group = ih + gap + ph + gap + text_h;
+  const int top = std::clamp(cy - group / 2, lo, std::max(lo, hi - group));
+
+  each_window(0, H, [&](int, int) {
+    Canvas panel = panel_canvas();
+    panel.fill_rect(0, 0, W, H, bg_);
+
+    // The icon: an outline (stroke t), the terminal on the right, the charge bar inside.
+    const int t = std::max(2, iw / 22);
+    const int nub_w = std::max(2, iw / 14), nub_h = ih * 2 / 5;
+    const int body_w = iw - nub_w;
+    const int x0 = cx - iw / 2, y0 = top;
+    const int r = std::max(1, ih / 6);
+    panel.fill_round_rect(x0, y0, body_w, ih, r, kRed);
+    panel.fill_round_rect(x0 + t, y0 + t, body_w - 2 * t, ih - 2 * t, std::max(1, r - t), bg_);
+    panel.fill_rect(x0 + body_w, y0 + (ih - nub_h) / 2, nub_w, nub_h, kRed);
+    const int pad = std::max(1, t);
+    const int in_x = x0 + t + pad, in_y = y0 + t + pad, in_w = body_w - 2 * (t + pad), in_h = ih - 2 * (t + pad);
+    const int level = std::clamp<int>(m.battery, 0, 100);
+    const int bar_w = std::max(t, in_w * level / 100);
+    panel.fill_rect(in_x, in_y, bar_w, in_h, kRed);
+    // The "!": a stem and a dot, in a gap cut out of the bar.
+    const int ex_w = std::max(2, in_h / 5), stem_h = in_h * 11 / 20, dot_h = ex_w;
+    const int ex_x = x0 + body_w / 2 - ex_w / 2;
+    const int ex_y = in_y + (in_h - (stem_h + ex_w / 2 + dot_h)) / 2;
+    panel.fill_rect(ex_x - pad, in_y, ex_w + 2 * pad, in_h, bg_);
+    panel.fill_rect(ex_x, ex_y, ex_w, stem_h, kRed);
+    panel.fill_rect(ex_x, ex_y + stem_h + ex_w / 2, ex_w, dot_h, kRed);
+
+    // The percentage, then "Low battery" and the advice.
+    int y = top + ih + gap;
+    panel.text(cx - Canvas::text_width(m.headline, ps) / 2, y, m.headline, ps, kRed);
+    y += ph + gap;
+    const std::string a = fit(line1, (box_w + ls1) / (font::kCellWidth * ls1));
+    panel.text(cx - Canvas::text_width(a, ls1) / 2, y, a, ls1, kText);
+    y += Canvas::line_height(ls1);
+    if (!line2.empty()) {
+      const std::string b = fit(line2, (box_w + ls2) / (font::kCellWidth * ls2));
+      panel.text(cx - Canvas::text_width(b, ls2) / 2, y, b, ls2, kDim);
+    }
+
+    // The hint, if any, in the bottom band where the bar would be.
+    if (m.hint.empty()) return;
+    const int hw = panel_.round ? W * 60 / 100 : W - 8 * s;
+    const std::string hint = fit(m.hint, (hw + s) / (font::kCellWidth * s));
+    panel.text(cx - Canvas::text_width(hint, s) / 2, hy + s, hint, s, kDim);
   });
 }
 

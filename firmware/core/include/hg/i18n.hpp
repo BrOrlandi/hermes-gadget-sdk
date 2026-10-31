@@ -207,7 +207,7 @@ namespace hg::i18n {
   X(ButtonShowsSessions,    "{0} shows sessions") \
   X(LowBattery,             "Low battery: connect USB") \
   X(LowBatteryTitle,        "Low battery") \
-  X(LowBatteryAlert,        "{0}% left. Connect USB to charge.") \
+  X(ConnectUsbToCharge,     "Connect USB to charge") \
   X(TapToClose,             "Tap to close") \
   /* Timers */ \
   X(TimerLeft,              "Timer {0}") \
