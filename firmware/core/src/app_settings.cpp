@@ -69,6 +69,7 @@ void App::settings_input(Button button, bool pressed) {
       switch (item) {
         case Menu::Profile: return agent_profiles_.size() > 1;
         case Menu::Power: return hal_.power != nullptr;
+        case Menu::BatteryAlert: return hal_.power != nullptr && hal_.display != nullptr;
         case Menu::TouchWake: return profile_.touch_screen && profile_.wake_key && hal_.display != nullptr;
         case Menu::FaceDownSleep: return can_sleep_face_down();
         case Menu::Clock: return hal_.display != nullptr;
@@ -138,6 +139,16 @@ void App::settings_input(Button button, bool pressed) {
       const uint32_t seconds = screen_timeout_ms_ / 1000;
       const uint32_t next = seconds == 0 ? 30 : seconds < 60 ? 60 : seconds < 120 ? 120 : seconds < 300 ? 300 : 0;
       console("set screen_timeout " + std::to_string(next));
+      break;
+    }
+    case Menu::BatteryAlert: {
+      // Off, 10%, 10% and 5%, 20% and 10%, then Off again; another list set from the console goes to Off.
+      const uint8_t* l = battery_alert_levels_;
+      const char* next = !l[0]                         ? "10"
+                         : l[0] == 10 && !l[1]          ? "10,5"
+                         : l[0] == 10 && l[1] == 5 && !l[2] ? "20,10"
+                                                           : "off";
+      console(std::string("set battery_alert ") + next);
       break;
     }
     case Menu::TouchWake:
@@ -289,6 +300,14 @@ void App::settings_model() {
       m.body = screen_timeout_ms_ ? tr(Msg::TimeoutSeconds, {std::to_string(screen_timeout_ms_ / 1000)})
                                  : std::string(tr(Msg::TimeoutAlwaysOn));
       break;
+    case Menu::BatteryAlert: {
+      m.detail = tr(Msg::BatteryAlert);
+      std::string levels;
+      for (uint8_t level : battery_alert_levels_)
+        if (level) levels += (levels.empty() ? "" : ", ") + std::to_string(level) + "%";
+      m.body = levels.empty() ? std::string(tr(Msg::BatteryAlertOff)) : tr(Msg::BatteryAlertAt, {levels});
+      break;
+    }
     case Menu::TouchWake:
       m.detail = tr(Msg::TouchWake);
       m.body = tr(touch_wake_ ? Msg::TouchWakeOn : Msg::TouchWakeOff);

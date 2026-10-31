@@ -2423,12 +2423,204 @@ TEST("power: failed readings replace stale data and shutdown requires a second l
   CHECK(status["power"]["battery_mv"].is_null());
   CHECK((*r.fake.last("state"))["sensors"]["battery_mv"].is_null());
   r.app.open_settings();
-  for (int i = 0; i < 11; ++i) r.app.console("cancel");  // the Clock face item sits before Power off
+  for (int i = 0; i < 12; ++i) r.app.console("cancel");  // the Clock face item sits before Power off
   CHECK_EQ(r.app.model().detail, std::string("Power off"));
   r.app.console("talk"); r.app.console("release");
   CHECK_EQ(battery.shutdowns, 0);
   r.app.console("talk"); r.app.console("release");
   CHECK_EQ(battery.shutdowns, 1);
+}
+
+namespace {
+// A gauge whose reading a test sets: on battery at 50% until it changes it.
+struct AlertPower : hg::Power {
+  hg::PowerStatus status{true, 3800, 50, false, false};
+  std::optional<hg::PowerStatus> read() override { return status; }
+  bool power_off() override { return false; }
+  void on_battery(uint8_t percent) { status.battery_percent = percent; status.charging = status.external_power = false; }
+  void on_usb(uint8_t percent) { status.battery_percent = percent; status.charging = status.external_power = true; }
+};
+}  // namespace
+
+TEST("battery alert: each level lights the dark screen once per discharge, and a press only closes it") {
+  AlertPower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.fake.backlight = true;
+  r.bring_online(true);
+  // Waits in 5 s readings, with the server's heartbeat so the connection stays settled.
+  auto wait = [&](uint32_t ms) {
+    for (uint32_t done = 0; done < ms; done += 5000) {
+      r.server(R"({"type":"ping"})");
+      r.advance(std::min<uint32_t>(5000, ms - done));
+    }
+  };
+  CHECK_EQ(r.app.console("set screen_timeout 30"), std::string("@ok screen_timeout"));
+  battery.on_battery(8);
+  wait(5000);
+  CHECK_EQ(int(r.app.battery_alert()), 0);  // off by default
+  CHECK_EQ(r.app.console("set battery_alert 5,10"), std::string("@ok battery_alert"));
+  CHECK_EQ(r.fake.kv["battery_alert"], std::string("5,10"));
+  battery.on_battery(12);
+  wait(31000);
+  CHECK_EQ(r.fake.brightness, 0);
+  CHECK_EQ(int(r.app.battery_alert()), 0);
+  battery.on_battery(10);
+  wait(5000);
+  CHECK_EQ(int(r.app.battery_alert()), 10);
+  CHECK_EQ(r.fake.brightness, 100);
+  CHECK(r.app.screen() == hg::Screen::Card);
+  CHECK_EQ(r.app.model().headline, std::string("Low battery"));
+  CHECK_EQ(r.app.model().detail, std::string("10% left. Connect USB to charge."));
+  CHECK_EQ(r.app.model().hint, std::string("TALK to close"));
+  r.app.on_button(hg::Button::Talk, true);  // closes it, and records nothing
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK_EQ(int(r.app.battery_alert()), 0);
+  CHECK(!r.fake.mic_on);
+  CHECK(r.app.screen() == hg::Screen::Ready);
+  // A reading that wobbles across the level, or a jump past it, does not repeat it.
+  for (uint8_t percent : {11, 10, 9, 11, 6}) {
+    battery.on_battery(percent);
+    wait(5000);
+    CHECK_EQ(int(r.app.battery_alert()), 0);
+  }
+  battery.on_battery(5);
+  wait(5000);
+  CHECK_EQ(int(r.app.battery_alert()), 5);
+  CHECK_EQ(r.app.model().detail, std::string("5% left. Connect USB to charge."));
+  wait(30000);  // unanswered, it goes after 30 s and the screen times out as usual
+  CHECK_EQ(int(r.app.battery_alert()), 0);
+  CHECK_EQ(r.fake.brightness, 100);
+  wait(31000);
+  CHECK_EQ(r.fake.brightness, 0);
+  battery.on_battery(3);
+  wait(5000);
+  CHECK_EQ(int(r.app.battery_alert()), 0);
+  CHECK_EQ(r.fake.brightness, 0);
+}
+
+TEST("battery alert: never on USB, and only charging clear of a level rearms it") {
+  AlertPower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.fake.backlight = true;
+  r.bring_online(true);
+  CHECK_EQ(r.app.console("set battery_alert 10"), std::string("@ok battery_alert"));
+  battery.on_usb(8);
+  r.advance(5000);
+  CHECK_EQ(int(r.app.battery_alert()), 0);
+  battery.status.external_power.reset();  // an unknown supply is no battery-only reading
+  battery.status.charging.reset();
+  r.advance(5000);
+  CHECK_EQ(int(r.app.battery_alert()), 0);
+  battery.on_battery(9);
+  r.advance(5000);
+  CHECK_EQ(int(r.app.battery_alert()), 10);
+  battery.on_usb(9);  // plugging in closes it
+  r.advance(5000);
+  CHECK_EQ(int(r.app.battery_alert()), 0);
+  battery.on_usb(14);  // a short charge: still within 5 points of the level
+  r.advance(5000);
+  battery.on_battery(10);
+  r.advance(5000);
+  CHECK_EQ(int(r.app.battery_alert()), 0);
+  battery.on_usb(15);
+  r.advance(5000);
+  battery.on_battery(10);
+  r.advance(5000);
+  CHECK_EQ(int(r.app.battery_alert()), 10);
+}
+
+TEST("battery alert: waits for a quiet screen and gives way to a turn or a question") {
+  AlertPower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.fake.backlight = true;
+  r.bring_online(true);
+  CHECK_EQ(r.app.console("set battery_alert 10"), std::string("@ok battery_alert"));
+  r.app.on_button(hg::Button::Talk, true);  // listening: the alert waits
+  battery.on_battery(9);
+  r.advance(5000);
+  CHECK_EQ(int(r.app.battery_alert()), 0);
+  r.app.on_button(hg::Button::Cancel, true);
+  r.app.on_button(hg::Button::Cancel, false);
+  r.app.on_button(hg::Button::Talk, false);
+  r.advance(5000);
+  CHECK_EQ(int(r.app.battery_alert()), 10);
+  r.server(R"({"type":"prompt","id":"q","text":"Continue?"})");
+  r.advance(10);
+  CHECK_EQ(int(r.app.battery_alert()), 0);
+  CHECK(r.app.screen() == hg::Screen::Prompt);
+}
+
+TEST("battery alert: the power key closes it, and only the next press darkens the screen") {
+  struct : AlertPower {
+    int presses = 0;
+    bool take_key_press() override {
+      if (!presses) return false;
+      --presses;
+      return true;
+    }
+  } battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.fake.backlight = true;
+  r.bring_online(true);
+  CHECK_EQ(r.app.console("set battery_alert 10"), std::string("@ok battery_alert"));
+  battery.on_battery(10);
+  r.advance(5000);
+  CHECK_EQ(int(r.app.battery_alert()), 10);
+  battery.presses = 1;
+  r.advance(200);
+  CHECK_EQ(int(r.app.battery_alert()), 0);
+  CHECK_EQ(r.fake.brightness, 100);
+  battery.presses = 1;
+  r.advance(200);
+  CHECK_EQ(r.fake.brightness, 0);
+}
+
+TEST("battery alert: on a touchscreen a tap closes it without talking") {
+  AlertPower battery;
+  Rig r(Rig::touch_profile());
+  r.hal.power = &battery;
+  r.fake.backlight = true;
+  r.bring_online(true);
+  CHECK_EQ(r.app.console("set battery_alert 10"), std::string("@ok battery_alert"));
+  battery.on_battery(10);
+  r.advance(5000);
+  CHECK_EQ(int(r.app.battery_alert()), 10);
+  CHECK_EQ(r.app.model().hint, std::string("Tap to close"));
+  hg::TouchGestures touch(r.app);
+  touch.update(true, 200, 200, r.fake.clock);
+  r.advance(50);
+  touch.update(false, 0, 0, r.fake.clock);
+  CHECK_EQ(int(r.app.battery_alert()), 0);
+  CHECK(!r.fake.mic_on);
+  CHECK(r.fake.last("audio.start") == nullptr);
+}
+
+TEST("battery alert: the setting takes off or up to three levels, and the settings item steps through presets") {
+  AlertPower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.bring_online(true);
+  for (const char* bad : {"0", "51", "10,10", "10,,5", "abc", "20,10,5,3", "10,"})
+    CHECK_EQ(r.app.console(std::string("set battery_alert ") + bad),
+             std::string("@error battery_alert must be off or up to 3 percentages from 1 to 50, like 10,5"));
+  CHECK_EQ(r.app.console("set battery_alert 20,10,5"), std::string("@ok battery_alert"));
+  CHECK(r.app.open_settings());
+  for (int i = 0; i < 20 && r.app.model().detail != "Low battery alert"; ++i) r.app.on_button(hg::Button::Down, true);
+  CHECK_EQ(r.app.model().detail, std::string("Low battery alert"));
+  CHECK(r.app.model().body.rfind("At 20%, 10%, 5%\n", 0) == 0);
+  const char* expected[] = {"off", "10", "10,5", "20,10", "off"};
+  const char* shown[] = {"Off\n", "At 10%\n", "At 10%, 5%\n", "At 20%, 10%\n", "Off\n"};
+  for (int i = 0; i < 5; ++i) {
+    r.app.on_button(hg::Button::Talk, true);
+    r.app.on_button(hg::Button::Talk, false);
+    CHECK_EQ(r.fake.kv["battery_alert"], std::string(expected[i]));
+    CHECK(r.app.model().body.rfind(shown[i], 0) == 0);
+  }
+  r.app.close_settings();
 }
 
 TEST("battery indicator: the top band shows the level, colours charging and low, and hides without a reading") {

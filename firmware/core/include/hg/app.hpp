@@ -160,6 +160,8 @@ class App {
   // touch_wake off: a dark screen ignores the touchscreen until a key lights it.
   bool touch_wake() const { return touch_wake_; }
   bool touch_ignored() const { return !touch_wake_ && display_sleeping_; }
+  // The low battery alert is on screen: the level it crossed, or 0.
+  uint8_t battery_alert() const { return battery_alert_; }
   std::string agent_profile_name() const;
   // Returns true when this input only wakes a sleeping display.
   bool wake_display();
@@ -417,7 +419,7 @@ class App {
   bool lang_auto_ = false;
   std::optional<i18n::Lang> hermes_lang_;  // from the last `welcome` that named one this firmware has
   enum class Menu : uint8_t { Closed, Volume, Brightness, TalkMode, Profile, Microphone, Speaker, Display, Inputs,
-                              Info, Power, IdleTimer, TouchWake, FaceDownSleep, Clock, PowerOff, WifiSetup, Phone, Language, Back };
+                              Info, Power, BatteryAlert, IdleTimer, TouchWake, FaceDownSleep, Clock, PowerOff, WifiSetup, Phone, Language, Back };
   enum class HardwareCheck : uint8_t { None, Microphone, Speaker, Display, Inputs };
   Menu menu_ = Menu::Closed;
   HardwareCheck hardware_check_ = HardwareCheck::None;
@@ -455,6 +457,16 @@ class App {
   bool battery_is_estimated() const;
   // Whether a native or explicitly enabled display percentage is available.
   bool battery_readable() const;
+  // The `battery_alert` setting: up to three percentages, highest first, 0 = unused.
+  // Crossing one on battery lights the screen with the alert once per discharge.
+  static constexpr int kBatteryAlertLevels = 3;
+  uint8_t battery_alert_levels_[kBatteryAlertLevels] = {};
+  uint8_t battery_alert_spent_ = 0;    // the lowest level alerted this discharge, 0 = none
+  uint8_t battery_alert_ = 0;          // the level on screen, 0 = none
+  uint8_t battery_alert_percent_ = 0;  // the reading it showed
+  uint32_t battery_alert_until_ = 0;
+  void battery_alert_check();
+  void dismiss_battery_alert();
   bool display_dimmed_ = false, display_sleeping_ = false, power_off_armed_ = false;
   bool dozing_ = false, on_battery_ = false;
   void set_dozing(bool dozing);

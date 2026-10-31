@@ -64,11 +64,38 @@ constexpr uint32_t kBackoffMs[] = {1000, 2000, 4000, 8000, 15000, 30000};
 constexpr size_t kBackoffSteps = sizeof(kBackoffMs) / sizeof(kBackoffMs[0]);
 
 const char* const kSettingKeys[] = {"name", "server", "token", "talk_mode", "volume", "brightness", "screen_timeout", "battery_display", "battery_estimate", "language", "wifi_ssid", "wifi_pass",
-                                    "face_down_sleep", "clock", "time_format", "touch_wake"};
+                                    "face_down_sleep", "clock", "time_format", "touch_wake", "battery_alert"};
 
 // NVS limits storage keys to 15 characters; keep the public setting name unchanged.
 std::string_view setting_storage_key(std::string_view key) {
   return key == "battery_estimate" ? std::string_view("batt_estimate") : key;
+}
+
+// The `battery_alert` setting: "off", or up to three distinct percentages from
+// 1 to 50 separated by commas ("10,5"). Fills `out` highest first, zeros after; false when invalid.
+bool parse_battery_alert(std::string_view value, uint8_t* out) {
+  constexpr int kMax = 3;
+  uint8_t levels[kMax] = {};
+  int count = 0;
+  if (value != "off") {
+    size_t start = 0;
+    while (true) {
+      const size_t comma = value.find(',', start);
+      const std::string_view part = value.substr(start, comma == std::string_view::npos ? value.size() - start : comma - start);
+      if (part.empty() || part.size() > 2 || part.find_first_not_of("0123456789") != std::string_view::npos || count == kMax)
+        return false;
+      const int level = std::atoi(std::string(part).c_str());
+      if (level < 1 || level > 50) return false;
+      for (int i = 0; i < count; ++i)
+        if (levels[i] == level) return false;
+      levels[count++] = static_cast<uint8_t>(level);
+      if (comma == std::string_view::npos) break;
+      start = comma + 1;
+    }
+    std::sort(levels, levels + count, [](uint8_t a, uint8_t b) { return a > b; });
+  }
+  if (out) std::copy(levels, levels + kMax, out);
+  return true;
 }
 
 bool is_secret(std::string_view key) { return key == "token" || key == "wifi_pass" || key == "ts_key"; }
@@ -184,6 +211,17 @@ void App::load_settings() {
                        : indicator == "percentage" ? BatteryIndicator::Percentage
                        : indicator == "both" ? BatteryIndicator::Both : BatteryIndicator::Off;
   battery_estimate_enabled_ = setting("battery_estimate", "off") == "liion";
+  {
+    // "10,5": the levels, highest first. A changed list starts the discharge afresh.
+    static_assert(kBatteryAlertLevels == 3, "parse_battery_alert fills three levels");
+    uint8_t levels[kBatteryAlertLevels] = {};
+    parse_battery_alert(setting("battery_alert", "off"), levels);
+    if (!std::equal(levels, levels + kBatteryAlertLevels, battery_alert_levels_)) {
+      std::copy(levels, levels + kBatteryAlertLevels, battery_alert_levels_);
+      battery_alert_spent_ = 0;
+      if (battery_alert_) dismiss_battery_alert();
+    }
+  }
   const std::string language = setting("language", "en");
   lang_auto_ = language == "auto";
   lang_ = lang_auto_ ? hermes_lang_.value_or(i18n::Lang::En) : i18n::parse(language).value_or(i18n::Lang::En);
@@ -1233,6 +1271,12 @@ void App::on_button(Button button, bool pressed) {
     if (!pressed) wake_buttons_ &= static_cast<uint8_t>(~bit);
     return;
   }
+  // The low battery alert: a press only closes it, and its release is swallowed above.
+  if (battery_alert_ && pressed) {
+    dismiss_battery_alert();
+    wake_buttons_ |= bit;
+    return;
+  }
   // The alarm: a press dismisses it, and its release is swallowed above, so nothing records.
   if (alarm_ && model_.screen == Screen::Alarm && pressed) {
     dismiss_alarm();
@@ -2023,6 +2067,16 @@ void App::update_model() {
     // Its own return, as the settings branch has: the tail below must not overwrite the label or hint.
     if (!display_sleeping_) render(m);
     return;
+  } else if (battery_alert_) {
+    // A local card over whatever screen was up; any press or tap closes it.
+    m.screen = Screen::Card;
+    m.hero = true;
+    m.caption_lines = kCaptionLines;
+    m.headline = tr(Msg::LowBatteryTitle);
+    m.detail = tr(Msg::LowBatteryAlert, {std::to_string(battery_alert_percent_)});
+    m.hint = profile_.touch_screen ? std::string(tr(Msg::TapToClose)) : tr(Msg::ButtonToClose, {talk});
+    if (!display_sleeping_) render(m);
+    return;
   } else if (!fatal_.empty()) {
     m.screen = Screen::Error;
     m.hero = true;
@@ -2362,6 +2416,8 @@ std::string App::console(std::string_view raw) {
       return "@error face_down_sleep must be on or off";
     if (key == "touch_wake" && !value.empty() && value != "on" && value != "off")
       return "@error touch_wake must be on or off";
+    if (key == "battery_alert" && !value.empty() && value != "off" && !parse_battery_alert(value, nullptr))
+      return "@error battery_alert must be off or up to 3 percentages from 1 to 50, like 10,5";
     if (key == "clock" && !value.empty() &&
         (value.size() > 4 || value.find_first_not_of("0123456789") != std::string::npos ||
          (std::atoi(value.c_str()) != 0 && (std::atoi(value.c_str()) < 5 || std::atoi(value.c_str()) > 3600))))

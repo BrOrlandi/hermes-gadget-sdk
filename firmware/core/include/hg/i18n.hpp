@@ -70,6 +70,9 @@ namespace hg::i18n {
   X(ScreenTimeout,          "Screen timeout") \
   X(TimeoutSeconds,         "{0} seconds\nDims halfway; first input wakes.") \
   X(TimeoutAlwaysOn,        "Always on\nSelect to enable automatic dimming and screen sleep.") \
+  X(BatteryAlert,           "Low battery alert") \
+  X(BatteryAlertOff,        "Off\nSelect to light the screen when the battery runs low.") \
+  X(BatteryAlertAt,         "At {0}\nOn battery, the screen lights once at each.") \
   X(TouchWake,              "Touch wakes screen") \
   X(TouchWakeOn,            "On\nA touch lights the dark screen.") \
   X(TouchWakeOff,           "Off\nOnly a button lights the dark screen.") \
@@ -200,6 +203,9 @@ namespace hg::i18n {
   X(SwipeDownForSessions,   "Swipe down for sessions") \
   X(ButtonShowsSessions,    "{0} shows sessions") \
   X(LowBattery,             "Low battery: connect USB") \
+  X(LowBatteryTitle,        "Low battery") \
+  X(LowBatteryAlert,        "{0}% left. Connect USB to charge.") \
+  X(TapToClose,             "Tap to close") \
   /* Timers */ \
   X(TimerLeft,              "Timer {0}") \
   X(TimerDone,              "TIMER DONE") \
