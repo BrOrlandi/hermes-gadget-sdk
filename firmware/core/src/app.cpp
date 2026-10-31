@@ -1985,7 +1985,7 @@ void App::update_model() {
       const auto& p = *power_status_;
       m.battery = static_cast<int8_t>(std::min<int>(*percent, 100));
       m.battery_charging = p.charging == true;
-      m.battery_low = *percent <= 10 && p.external_power == false;
+      m.battery_low = *percent <= low_battery_level() && p.external_power == false;
       // A voltage estimate reads high on a charger, so show the icon without a number there,
       // with the bolt even once the cell is full and the charger has stopped.
       if (battery_is_estimated() && (p.charging == true || p.external_power == true)) {
@@ -2071,12 +2071,11 @@ void App::update_model() {
     if (!display_sleeping_) render(m);
     return;
   } else if (battery_alert_) {
-    // A local card over whatever screen was up; any press or tap closes it.
-    m.screen = Screen::Card;
-    m.hero = true;
-    m.caption_lines = kCaptionLines;
-    m.headline = tr(Msg::LowBatteryTitle);
-    m.detail = tr(Msg::LowBatteryAlert, {std::to_string(battery_alert_percent_)});
+    // The whole panel over whatever screen was up; any press or tap closes it.
+    m.screen = Screen::LowBattery;
+    m.headline = std::to_string(battery_alert_percent_) + "%";
+    m.detail = std::string(tr(Msg::LowBatteryTitle)) + "\n" + tr(Msg::ConnectUsbToCharge);
+    m.battery = static_cast<int8_t>(battery_alert_percent_);
     m.hint = profile_.touch_screen ? std::string(tr(Msg::TapToClose)) : tr(Msg::ButtonToClose, {talk});
     if (!display_sleeping_) render(m);
     return;

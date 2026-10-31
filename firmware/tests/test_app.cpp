@@ -2469,9 +2469,10 @@ TEST("battery alert: each level lights the dark screen once per discharge, and a
   wait(5000);
   CHECK_EQ(int(r.app.battery_alert()), 10);
   CHECK_EQ(r.fake.brightness, 100);
-  CHECK(r.app.screen() == hg::Screen::Card);
-  CHECK_EQ(r.app.model().headline, std::string("Low battery"));
-  CHECK_EQ(r.app.model().detail, std::string("10% left. Connect USB to charge."));
+  CHECK(r.app.screen() == hg::Screen::LowBattery);
+  CHECK_EQ(r.app.model().headline, std::string("10%"));
+  CHECK_EQ(r.app.model().detail, std::string("Low battery\nConnect USB to charge"));
+  CHECK_EQ(int(r.app.model().battery), 10);
   CHECK_EQ(r.app.model().hint, std::string("TALK to close"));
   r.app.on_button(hg::Button::Talk, true);  // closes it, and records nothing
   r.app.on_button(hg::Button::Talk, false);
@@ -2487,7 +2488,7 @@ TEST("battery alert: each level lights the dark screen once per discharge, and a
   battery.on_battery(5);
   wait(5000);
   CHECK_EQ(int(r.app.battery_alert()), 5);
-  CHECK_EQ(r.app.model().detail, std::string("5% left. Connect USB to charge."));
+  CHECK_EQ(r.app.model().headline, std::string("5%"));
   wait(30000);  // unanswered, it goes after 30 s and the screen times out as usual
   CHECK_EQ(int(r.app.battery_alert()), 0);
   CHECK_EQ(r.fake.brightness, 100);
@@ -2634,6 +2635,34 @@ TEST("tones: each note lasts its time plus its gap, and starts and ends silent")
   for (size_t i = 0; i < 1600; ++i) peak = std::max(peak, std::abs(int(pcm[i])));
   CHECK(peak > 7000 && peak <= 8000);
   for (size_t i = 1600; i < 2400; ++i) CHECK_EQ(pcm[i], int16_t(0));  // the gap
+}
+
+TEST("battery alert: the indicator turns red at 15%, or at the highest alert level when higher") {
+  AlertPower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.bring_online(true);
+  CHECK_EQ(r.app.console("set battery_display percentage"), std::string("@ok battery_display"));
+  battery.on_battery(16);
+  r.advance(5000);
+  CHECK(!r.app.model().battery_low);
+  battery.on_battery(15);
+  r.advance(5000);
+  CHECK(r.app.model().battery_low);
+  CHECK_EQ(r.app.console("set battery_alert 10,5"), std::string("@ok battery_alert"));
+  CHECK(r.app.model().battery_low);  // lower levels keep 15%
+  CHECK_EQ(r.app.console("set battery_alert 20,10"), std::string("@ok battery_alert"));
+  r.app.on_button(hg::Button::Cancel, true);  // closes the alert at 20% that the new levels raise
+  r.app.on_button(hg::Button::Cancel, false);
+  battery.on_battery(20);
+  r.advance(5000);
+  CHECK(r.app.model().battery_low);
+  battery.on_battery(21);
+  r.advance(5000);
+  CHECK(!r.app.model().battery_low);
+  battery.on_usb(5);
+  r.advance(5000);
+  CHECK(!r.app.model().battery_low);  // never red on USB
 }
 
 TEST("battery alert: the setting takes off or up to three levels, and the settings item steps through presets") {

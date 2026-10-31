@@ -194,7 +194,7 @@ const Entry kSpanish[] = {
     {Msg::ButtonShowsSessions, "{0}: sesiones"},
     {Msg::LowBattery, "Batería baja: conecta USB"},
     {Msg::LowBatteryTitle, "Batería baja"},
-    {Msg::LowBatteryAlert, "Queda {0}%. Conecta el USB para cargar."},
+    {Msg::ConnectUsbToCharge, "Conecta el USB para cargar"},
     {Msg::TapToClose, "Toca para cerrar"},
     // Timers
     {Msg::TimerLeft, "Quedan {0}"},
