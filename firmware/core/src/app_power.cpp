@@ -236,8 +236,11 @@ void App::power_tick() {
     }
     charged_check();
   }
-  if (power_notice_ != PowerNotice::None && (static_cast<int32_t>(now() - charging_notice_until_) >= 0 || screen_busy() || alarm_ ||
-                           face_down_ || settings_open() || plugged_ != true))
+  // Its own sound keeps the speaker busy, so it gives way to what takes the screen, not to that.
+  if (power_notice_ != PowerNotice::None &&
+      (static_cast<int32_t>(now() - charging_notice_until_) >= 0 || mode_ != Mode::Idle || prompt_showing() ||
+       overlay_ != Overlay::None || battery_alert_ || alarm_ || face_down_ || settings_open() ||
+       !wifi_setup_text_.empty() || phone_pairing_ || ota_busy() || ota_ == Ota::Restarting || plugged_ != true))
     dismiss_charging_notice(static_cast<int32_t>(now() - charging_notice_until_) >= 0);
   // Something else took the screen, or its time ran out: the alert goes.
   if (battery_alert_ && (static_cast<int32_t>(now() - battery_alert_until_) >= 0 || mode_ != Mode::Idle ||
