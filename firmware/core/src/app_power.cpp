@@ -20,8 +20,9 @@ constexpr uint32_t kBatteryAlertMs = 30000;
 // A spent alert level rearms once a charger lifts the reading this far above it, so
 // a percentage that wobbles across a level, or a short time on USB, never repeats it.
 constexpr int kBatteryAlertRearm = 5;
-// The low battery alert's sound: two falling notes. A placeholder until the sound is chosen.
-constexpr Tone kLowBatteryTones[] = {{660, 150, 80, 7000}, {440, 220, 0, 7000}};
+// The low battery alert's sound: a falling double beep, 880 Hz then 660 Hz, a little
+// softer than the timer alarm's (9000).
+constexpr Tone kLowBatteryTones[] = {{880, 120, 80, 8000}, {660, 160, 0, 8000}};
 
 }  // namespace
 
