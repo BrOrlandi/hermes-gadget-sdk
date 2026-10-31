@@ -2826,9 +2826,9 @@ TEST("charging notice: silent by default; charging_sound on chirps once on plugg
   before = r.fake.spk_samples;
   battery.on_usb(50);
   r.advance(5000);
-  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * 240 / 1000));  // 660 Hz 80 ms, 20 ms, 990 Hz 140 ms
+  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * (150 + 240) / 1000));  // the lead-in, then 660 Hz 80 ms, 20 ms, 990 Hz 140 ms
   r.advance(5000);
-  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * 240 / 1000));  // once per plug
+  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * (150 + 240) / 1000));  // once per plug
 }
 
 TEST("full battery: once per charge, when charging ends or the gauge reaches 100%, with a chime") {
@@ -2853,7 +2853,7 @@ TEST("full battery: once per charge, when charging ends or the gauge reaches 100
   CHECK_EQ(r.app.model().headline, std::string("100%"));
   CHECK_EQ(r.app.model().detail, std::string("Battery full\nYou can unplug"));
   CHECK_EQ(int(r.app.model().face_battery), 100);
-  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * 420 / 1000));  // 784 Hz 140 ms, 40 ms, 1046 Hz 240 ms
+  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * (150 + 420) / 1000));  // the lead-in, then 784 Hz 140 ms, 40 ms, 1046 Hz 240 ms
   r.fake.spk_draining = true;  // its own chime still playing does not close it
   r.advance(1000);
   CHECK(r.app.charged_notice());
@@ -2865,7 +2865,7 @@ TEST("full battery: once per charge, when charging ends or the gauge reaches 100
   battery.status.charging = false;
   r.advance(5000);
   CHECK(!r.app.charged_notice());
-  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * 420 / 1000));
+  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * (150 + 420) / 1000));
   // Unplugged and plugged back in full: nothing charged, nothing said.
   battery.on_battery(100);
   r.advance(5000);
@@ -2898,7 +2898,7 @@ TEST("full battery: the screen and the chime are separate settings, and a busy s
   battery.status.charging = false;
   r.advance(15000);  // three readings in a row: the charge has ended
   CHECK(!r.app.charged_notice());
-  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * 420 / 1000));  // the chime alone
+  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * (150 + 420) / 1000));  // the chime alone
   CHECK_EQ(r.app.console("set charged_notice on"), std::string("@ok charged_notice"));
   CHECK_EQ(r.app.console("set charged_sound off"), std::string("@ok charged_sound"));
   battery.on_battery(95);
@@ -2948,7 +2948,7 @@ TEST("full battery: a charger still starting up, or flickering off for a reading
   CHECK_EQ(r.fake.spk_samples, before);  // no sound at any point so far
   r.advance(5000);  // the third in a row: the charge has ended
   CHECK(r.app.charged_notice());
-  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * 420 / 1000));
+  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * (150 + 420) / 1000));
 }
 
 TEST("battery alert: the setting takes off or up to three levels, and the settings item steps through presets") {
