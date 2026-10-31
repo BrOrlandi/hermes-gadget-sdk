@@ -2707,14 +2707,33 @@ TEST("battery alert: the setting takes off or up to three levels, and the settin
   for (int i = 0; i < 20 && r.app.model().detail != "Low battery alert"; ++i) r.app.on_button(hg::Button::Down, true);
   CHECK_EQ(r.app.model().detail, std::string("Low battery alert"));
   CHECK(r.app.model().body.rfind("At 20%, 10%, 5%\n", 0) == 0);
-  const char* expected[] = {"off", "10", "10,5", "20,10", "off"};
-  const char* shown[] = {"Off\n", "At 10%\n", "At 10%, 5%\n", "At 20%, 10%\n", "Off\n"};
-  for (int i = 0; i < 5; ++i) {
+  const char* expected[] = {"off", "10", "10,5", "15,10,5", "20,10", "off"};
+  const char* shown[] = {"Off\n", "At 10%\n", "At 10%, 5%\n", "At 15%, 10%, 5%\n", "At 20%, 10%\n", "Off\n"};
+  for (int i = 0; i < 6; ++i) {
     r.app.on_button(hg::Button::Talk, true);
     r.app.on_button(hg::Button::Talk, false);
     CHECK_EQ(r.fake.kv["battery_alert"], std::string(expected[i]));
     CHECK(r.app.model().body.rfind(shown[i], 0) == 0);
   }
+  r.app.close_settings();
+}
+
+TEST("battery alert: the Low battery sound item turns the beep off and on") {
+  AlertPower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.bring_online(true);
+  CHECK(r.app.open_settings());
+  for (int i = 0; i < 20 && r.app.model().detail != "Low battery sound"; ++i) r.app.on_button(hg::Button::Down, true);
+  CHECK_EQ(r.app.model().detail, std::string("Low battery sound"));
+  CHECK(r.app.model().body.rfind("On\n", 0) == 0);
+  r.app.on_button(hg::Button::Talk, true);
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK(r.app.model().body.rfind("Off\n", 0) == 0);
+  CHECK_EQ(r.fake.kv["batt_alert_snd"], std::string("off"));
+  r.app.on_button(hg::Button::Talk, true);
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK(r.app.model().body.rfind("On\n", 0) == 0);
   r.app.close_settings();
 }
 
