@@ -2425,7 +2425,7 @@ TEST("power: failed readings replace stale data and shutdown requires a second l
   CHECK(status["power"]["battery_mv"].is_null());
   CHECK((*r.fake.last("state"))["sensors"]["battery_mv"].is_null());
   r.app.open_settings();
-  for (int i = 0; i < 14; ++i) r.app.console("cancel");  // the Clock face item sits before Power off
+  for (int i = 0; i < 15; ++i) r.app.console("cancel");  // the Clock face item sits before Power off
   CHECK_EQ(r.app.model().detail, std::string("Power off"));
   r.app.console("talk"); r.app.console("release");
   CHECK_EQ(battery.shutdowns, 0);
@@ -2804,6 +2804,31 @@ TEST("charging notice: off leaves the screen dark, and the settings item toggles
   battery.on_usb(50);
   r.advance(5000);
   CHECK(!r.app.charging_notice());
+}
+
+TEST("charging notice: silent by default; charging_sound on chirps once on plugging in") {
+  AlertPower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.fake.backlight = true;
+  r.bring_online(true);
+  battery.on_battery(50);
+  r.advance(5000);
+  size_t before = r.fake.spk_samples;
+  battery.on_usb(50);
+  r.advance(5000);
+  CHECK(r.app.charging_notice());
+  CHECK_EQ(r.fake.spk_samples, before);
+  CHECK_EQ(r.app.console("set charging_sound maybe"), std::string("@error charging_sound must be on or off"));
+  CHECK_EQ(r.app.console("set charging_sound on"), std::string("@ok charging_sound"));
+  battery.on_battery(50);
+  r.advance(5000);
+  before = r.fake.spk_samples;
+  battery.on_usb(50);
+  r.advance(5000);
+  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * 240 / 1000));  // 660 Hz 80 ms, 20 ms, 990 Hz 140 ms
+  r.advance(5000);
+  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * 240 / 1000));  // once per plug
 }
 
 TEST("battery alert: the setting takes off or up to three levels, and the settings item steps through presets") {

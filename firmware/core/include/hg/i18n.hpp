@@ -79,6 +79,9 @@ namespace hg::i18n {
   X(ChargingNotice,         "Charging screen") \
   X(ChargingNoticeOn,       "On\nPlugging in USB shows the battery level.") \
   X(ChargingNoticeOff,      "Off\nPlugging in USB leaves the screen as it is.") \
+  X(ChargingSound,          "Charging sound") \
+  X(ChargingSoundOn,        "On\nPlugging in USB chirps.") \
+  X(ChargingSoundOff,       "Off\nPlugging in USB is silent.") \
   X(TouchWake,              "Touch wakes screen") \
   X(TouchWakeOn,            "On\nA touch lights the dark screen.") \
   X(TouchWakeOff,           "Off\nOnly a button lights the dark screen.") \

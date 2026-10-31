@@ -72,6 +72,7 @@ void App::settings_input(Button button, bool pressed) {
         case Menu::BatteryAlert: return hal_.power != nullptr && hal_.display != nullptr;
         case Menu::BatteryAlertSound: return hal_.power != nullptr && hal_.display != nullptr && hal_.speaker != nullptr;
         case Menu::ChargingNotice: return hal_.power != nullptr && hal_.display != nullptr;
+        case Menu::ChargingSound: return hal_.power != nullptr && hal_.speaker != nullptr;
         case Menu::TouchWake: return profile_.touch_screen && profile_.wake_key && hal_.display != nullptr;
         case Menu::FaceDownSleep: return can_sleep_face_down();
         case Menu::Clock: return hal_.display != nullptr;
@@ -162,6 +163,9 @@ void App::settings_input(Button button, bool pressed) {
       break;
     case Menu::ChargingNotice:
       console(charging_notice_enabled_ ? "set charging_notice off" : "set charging_notice on");
+      break;
+    case Menu::ChargingSound:
+      console(charging_sound_ ? "set charging_sound off" : "set charging_sound on");
       break;
     case Menu::TouchWake:
       console(touch_wake_ ? "set touch_wake off" : "set touch_wake on");
@@ -327,6 +331,10 @@ void App::settings_model() {
     case Menu::ChargingNotice:
       m.detail = tr(Msg::ChargingNotice);
       m.body = tr(charging_notice_enabled_ ? Msg::ChargingNoticeOn : Msg::ChargingNoticeOff);
+      break;
+    case Menu::ChargingSound:
+      m.detail = tr(Msg::ChargingSound);
+      m.body = tr(charging_sound_ ? Msg::ChargingSoundOn : Msg::ChargingSoundOff);
       break;
     case Menu::TouchWake:
       m.detail = tr(Msg::TouchWake);
