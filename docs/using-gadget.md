@@ -93,7 +93,7 @@ Tap CANCEL to move to the next item, then tap TALK to change it. On a touchscree
 | Input check | Show the last button pressed; release CANCEL to leave the check |
 | Device information | Show the board, firmware, device ID, and available audio drivers |
 | Battery and power | Show available power readings on boards with a power driver; select to choose what the top of the screen shows: icon, percentage, both, or off |
-| Low battery alert | Boards with a power driver and a display: choose Off (the default), 10%, 10% and 5%, or 20% and 10% for the screen to light with a low battery reminder |
+| Low battery alert | Boards with a power driver and a display: choose Off (the default), 10%, 10% and 5%, 15%, 10% and 5%, or 20% and 10% for the screen to light with a low battery reminder |
 | Low battery sound | Boards with a speaker: whether the low battery alert beeps; on by default |
 | Screen timeout | Choose always on, 30, 60, 120, or 300 seconds |
 | Touch wakes screen | Touchscreens with a button that can wake the screen: choose whether a touch lights the dark screen; on by default |

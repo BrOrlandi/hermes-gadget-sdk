@@ -143,13 +143,17 @@ void App::settings_input(Button button, bool pressed) {
       break;
     }
     case Menu::BatteryAlert: {
-      // Off, 10%, 10% and 5%, 20% and 10%, then Off again; another list set from the console goes to Off.
-      const uint8_t* l = battery_alert_levels_;
-      const char* next = !l[0]                         ? "10"
-                         : l[0] == 10 && !l[1]          ? "10,5"
-                         : l[0] == 10 && l[1] == 5 && !l[2] ? "20,10"
-                                                           : "off";
-      console(std::string("set battery_alert ") + next);
+      // The presets in turn, then Off again; another list set from the console goes to Off.
+      static const char* const kPresets[] = {"off", "10", "10,5", "15,10,5", "20,10"};
+      constexpr size_t kCount = sizeof(kPresets) / sizeof(kPresets[0]);
+      std::string current;
+      for (uint8_t level : battery_alert_levels_)
+        if (level) current += (current.empty() ? "" : ",") + std::to_string(level);
+      if (current.empty()) current = "off";
+      size_t next = 0;  // Off, unless the current list is a preset
+      for (size_t i = 0; i < kCount; ++i)
+        if (current == kPresets[i]) next = (i + 1) % kCount;
+      console(std::string("set battery_alert ") + kPresets[next]);
       break;
     }
     case Menu::BatteryAlertSound:
