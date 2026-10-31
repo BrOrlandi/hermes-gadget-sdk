@@ -2423,7 +2423,7 @@ TEST("power: failed readings replace stale data and shutdown requires a second l
   CHECK(status["power"]["battery_mv"].is_null());
   CHECK((*r.fake.last("state"))["sensors"]["battery_mv"].is_null());
   r.app.open_settings();
-  for (int i = 0; i < 12; ++i) r.app.console("cancel");  // the Clock face item sits before Power off
+  for (int i = 0; i < 13; ++i) r.app.console("cancel");  // the Clock face item sits before Power off
   CHECK_EQ(r.app.model().detail, std::string("Power off"));
   r.app.console("talk"); r.app.console("release");
   CHECK_EQ(battery.shutdowns, 0);
@@ -2597,6 +2597,43 @@ TEST("battery alert: on a touchscreen a tap closes it without talking") {
   CHECK_EQ(int(r.app.battery_alert()), 0);
   CHECK(!r.fake.mic_on);
   CHECK(r.fake.last("audio.start") == nullptr);
+}
+
+TEST("battery alert: beeps by default, once with each alert, and battery_alert_sound off keeps it silent") {
+  AlertPower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.fake.backlight = true;
+  r.bring_online(true);
+  CHECK_EQ(r.app.console("set battery_alert 10,5"), std::string("@ok battery_alert"));
+  const size_t before = r.fake.spk_samples;
+  battery.on_battery(10);
+  r.advance(5000);
+  CHECK_EQ(int(r.app.battery_alert()), 10);
+  CHECK(r.fake.spk_samples > before);  // the sound went to the speaker
+  const size_t after_first = r.fake.spk_samples;
+  r.advance(5000);
+  CHECK_EQ(r.fake.spk_samples, after_first);  // once, not with each reading
+  CHECK_EQ(r.app.console("set battery_alert_sound maybe"), std::string("@error battery_alert_sound must be on or off"));
+  CHECK_EQ(r.app.console("set battery_alert_sound off"), std::string("@ok battery_alert_sound"));
+  CHECK_EQ(r.fake.kv["batt_alert_snd"], std::string("off"));  // NVS keys stop at 15 characters
+  r.app.on_button(hg::Button::Cancel, true);  // closes the first alert
+  r.app.on_button(hg::Button::Cancel, false);
+  battery.on_battery(5);
+  r.advance(5000);
+  CHECK_EQ(int(r.app.battery_alert()), 5);
+  CHECK_EQ(r.fake.spk_samples, after_first);
+}
+
+TEST("tones: each note lasts its time plus its gap, and starts and ends silent") {
+  const hg::Tone tones[] = {{1000, 100, 50, 8000}, {500, 20, 0, 8000}};
+  const auto pcm = hg::synth_tones(tones, 2, 16000);
+  CHECK_EQ(pcm.size(), size_t(16000 * 170 / 1000));
+  CHECK_EQ(pcm.front(), int16_t(0));
+  int peak = 0;
+  for (size_t i = 0; i < 1600; ++i) peak = std::max(peak, std::abs(int(pcm[i])));
+  CHECK(peak > 7000 && peak <= 8000);
+  for (size_t i = 1600; i < 2400; ++i) CHECK_EQ(pcm[i], int16_t(0));  // the gap
 }
 
 TEST("battery alert: the setting takes off or up to three levels, and the settings item steps through presets") {

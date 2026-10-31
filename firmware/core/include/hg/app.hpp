@@ -19,6 +19,7 @@
 #include "hg/hal.hpp"
 #include "hg/i18n.hpp"
 #include "hg/json.hpp"
+#include "hg/tones.hpp"
 #include "hg/ui.hpp"
 #include "hg/vad.hpp"
 
@@ -419,7 +420,7 @@ class App {
   bool lang_auto_ = false;
   std::optional<i18n::Lang> hermes_lang_;  // from the last `welcome` that named one this firmware has
   enum class Menu : uint8_t { Closed, Volume, Brightness, TalkMode, Profile, Microphone, Speaker, Display, Inputs,
-                              Info, Power, BatteryAlert, IdleTimer, TouchWake, FaceDownSleep, Clock, PowerOff, WifiSetup, Phone, Language, Back };
+                              Info, Power, BatteryAlert, BatteryAlertSound, IdleTimer, TouchWake, FaceDownSleep, Clock, PowerOff, WifiSetup, Phone, Language, Back };
   enum class HardwareCheck : uint8_t { None, Microphone, Speaker, Display, Inputs };
   Menu menu_ = Menu::Closed;
   HardwareCheck hardware_check_ = HardwareCheck::None;
@@ -465,8 +466,12 @@ class App {
   uint8_t battery_alert_ = 0;          // the level on screen, 0 = none
   uint8_t battery_alert_percent_ = 0;  // the reading it showed
   uint32_t battery_alert_until_ = 0;
+  bool battery_alert_sound_ = true;    // the `battery_alert_sound` setting
   void battery_alert_check();
   void dismiss_battery_alert();
+  // A short local sound (hg/tones.hpp), only into a quiet speaker: never over Hermes,
+  // an open microphone, the alarm or a gadget lying face down.
+  void play_tones(const Tone* tones, size_t count);
   bool display_dimmed_ = false, display_sleeping_ = false, power_off_armed_ = false;
   bool dozing_ = false, on_battery_ = false;
   void set_dozing(bool dozing);
