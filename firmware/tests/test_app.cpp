@@ -2442,7 +2442,7 @@ struct AlertPower : hg::Power {
 };
 }  // namespace
 
-TEST("battery alert: each level lights the dark screen once per discharge, and a press only closes it") {
+TEST("battery alert: each level lights the dark screen once per discharge, and a press closes it and acts") {
   AlertPower battery;
   Rig r;
   r.hal.power = &battery;
@@ -2473,12 +2473,15 @@ TEST("battery alert: each level lights the dark screen once per discharge, and a
   CHECK_EQ(r.app.model().headline, std::string("10%"));
   CHECK_EQ(r.app.model().detail, std::string("Low battery\nConnect USB to charge"));
   CHECK_EQ(int(r.app.model().battery), 10);
-  CHECK_EQ(r.app.model().hint, std::string("TALK to close"));
-  r.app.on_button(hg::Button::Talk, true);  // closes it, and records nothing
-  r.app.on_button(hg::Button::Talk, false);
+  CHECK(r.app.model().hint.empty());
+  r.app.on_button(hg::Button::Talk, true);  // closes it, and the press talks as it would on Ready
   CHECK_EQ(int(r.app.battery_alert()), 0);
+  CHECK(r.fake.mic_on);
+  CHECK(r.app.screen() == hg::Screen::Listening);
+  r.app.on_button(hg::Button::Cancel, true);  // discards the recording
+  r.app.on_button(hg::Button::Cancel, false);
+  r.app.on_button(hg::Button::Talk, false);
   CHECK(!r.fake.mic_on);
-  CHECK(r.app.screen() == hg::Screen::Ready);
   // A reading that wobbles across the level, or a jump past it, does not repeat it.
   for (uint8_t percent : {11, 10, 9, 11, 6}) {
     battery.on_battery(percent);
@@ -2489,7 +2492,7 @@ TEST("battery alert: each level lights the dark screen once per discharge, and a
   wait(5000);
   CHECK_EQ(int(r.app.battery_alert()), 5);
   CHECK_EQ(r.app.model().headline, std::string("5%"));
-  wait(30000);  // unanswered, it goes after 30 s and the screen times out as usual
+  wait(10000);  // unanswered, it goes after 10 s and the screen times out as usual
   CHECK_EQ(int(r.app.battery_alert()), 0);
   CHECK_EQ(r.fake.brightness, 100);
   wait(31000);
@@ -2554,7 +2557,7 @@ TEST("battery alert: waits for a quiet screen and gives way to a turn or a quest
   CHECK(r.app.screen() == hg::Screen::Prompt);
 }
 
-TEST("battery alert: the power key closes it, and only the next press darkens the screen") {
+TEST("battery alert: the power key closes it and darkens the screen as usual") {
   struct : AlertPower {
     int presses = 0;
     bool take_key_press() override {
@@ -2574,13 +2577,10 @@ TEST("battery alert: the power key closes it, and only the next press darkens th
   battery.presses = 1;
   r.advance(200);
   CHECK_EQ(int(r.app.battery_alert()), 0);
-  CHECK_EQ(r.fake.brightness, 100);
-  battery.presses = 1;
-  r.advance(200);
   CHECK_EQ(r.fake.brightness, 0);
 }
 
-TEST("battery alert: on a touchscreen a tap closes it without talking") {
+TEST("battery alert: on a touchscreen a touch closes it and acts on the screen underneath") {
   AlertPower battery;
   Rig r(Rig::touch_profile());
   r.hal.power = &battery;
@@ -2590,14 +2590,37 @@ TEST("battery alert: on a touchscreen a tap closes it without talking") {
   battery.on_battery(10);
   r.advance(5000);
   CHECK_EQ(int(r.app.battery_alert()), 10);
-  CHECK_EQ(r.app.model().hint, std::string("Tap to close"));
+  hg::TouchGestures touch(r.app);
+  touch.update(true, 200, 200, r.fake.clock);  // touch-down closes it
+  CHECK_EQ(int(r.app.battery_alert()), 0);
+  r.advance(150);
+  touch.tick(r.fake.clock);  // and a hold talks, as on Ready
+  CHECK(r.fake.mic_on);
+  touch.update(false, 0, 0, r.fake.clock);
+}
+
+TEST("battery alert: a touch that wakes a dark screen is only a wake, as before") {
+  AlertPower battery;
+  Rig r(Rig::touch_profile());
+  r.hal.power = &battery;
+  r.fake.backlight = true;
+  r.bring_online(true);
+  CHECK_EQ(r.app.console("set battery_alert 10"), std::string("@ok battery_alert"));
+  CHECK_EQ(r.app.console("set screen_timeout 30"), std::string("@ok screen_timeout"));
+  battery.on_battery(10);
+  for (int i = 0; i < 10; ++i) {  // the alert goes after 10 s, and the screen sleeps 30 s later
+    r.server(R"({"type":"ping"})");
+    r.advance(5000);
+  }
+  CHECK_EQ(int(r.app.battery_alert()), 0);
+  CHECK_EQ(r.fake.brightness, 0);
   hg::TouchGestures touch(r.app);
   touch.update(true, 200, 200, r.fake.clock);
-  r.advance(50);
+  r.advance(150);
+  touch.tick(r.fake.clock);
   touch.update(false, 0, 0, r.fake.clock);
-  CHECK_EQ(int(r.app.battery_alert()), 0);
+  CHECK_EQ(r.fake.brightness, 100);
   CHECK(!r.fake.mic_on);
-  CHECK(r.fake.last("audio.start") == nullptr);
 }
 
 TEST("battery alert: beeps by default, once with each alert, and battery_alert_sound off keeps it silent") {

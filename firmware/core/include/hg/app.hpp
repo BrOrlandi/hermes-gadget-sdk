@@ -164,6 +164,9 @@ class App {
   bool touch_ignored() const { return !touch_wake_ && display_sleeping_; }
   // The low battery alert is on screen: the level it crossed, or 0.
   uint8_t battery_alert() const { return battery_alert_; }
+  // An input on a lit screen closes the alert first, then goes on as usual (a touch
+  // calls this at touch-down, so its hit tests see the screen underneath).
+  void close_notices_for_input();
   std::string agent_profile_name() const;
   // Returns true when this input only wakes a sleeping display.
   bool wake_display();

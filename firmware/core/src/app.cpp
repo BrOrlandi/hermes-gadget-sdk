@@ -1274,12 +1274,8 @@ void App::on_button(Button button, bool pressed) {
     if (!pressed) wake_buttons_ &= static_cast<uint8_t>(~bit);
     return;
   }
-  // The low battery alert: a press only closes it, and its release is swallowed above.
-  if (battery_alert_ && pressed) {
-    dismiss_battery_alert();
-    wake_buttons_ |= bit;
-    return;
-  }
+  // A press closes the low battery alert and then does what it always does.
+  if (pressed) close_notices_for_input();
   // The alarm: a press dismisses it, and its release is swallowed above, so nothing records.
   if (alarm_ && model_.screen == Screen::Alarm && pressed) {
     dismiss_alarm();
@@ -2071,12 +2067,12 @@ void App::update_model() {
     if (!display_sleeping_) render(m);
     return;
   } else if (battery_alert_) {
-    // The whole panel over whatever screen was up; any press or tap closes it.
+    // The whole panel over whatever screen was up, for a few seconds; any input closes it and goes on.
     m.screen = Screen::LowBattery;
     m.headline = std::to_string(battery_alert_percent_) + "%";
     m.detail = std::string(tr(Msg::LowBatteryTitle)) + "\n" + tr(Msg::ConnectUsbToCharge);
     m.battery = static_cast<int8_t>(battery_alert_percent_);
-    m.hint = profile_.touch_screen ? std::string(tr(Msg::TapToClose)) : tr(Msg::ButtonToClose, {talk});
+    m.hint.clear();
     if (!display_sleeping_) render(m);
     return;
   } else if (!fatal_.empty()) {

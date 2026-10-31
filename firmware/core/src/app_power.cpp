@@ -15,8 +15,8 @@ constexpr uint32_t kMotionStaleMs = 2000;  // a silent sensor never keeps the sc
 // The resting clock's share of the brightness setting: AMOLED care, with a floor
 // so a very low setting keeps the face readable.
 constexpr int kClockPercent = 70;
-// The low battery alert stays up this long unless a press or a tap closes it first.
-constexpr uint32_t kBatteryAlertMs = 30000;
+// The low battery alert stays up this long unless an input closes it first.
+constexpr uint32_t kBatteryAlertMs = 10000;
 // A spent alert level rearms once a charger lifts the reading this far above it, so
 // a percentage that wobbles across a level, or a short time on USB, never repeats it.
 constexpr int kBatteryAlertRearm = 5;
@@ -82,10 +82,7 @@ void App::set_dozing(bool dozing) {
 
 void App::on_power_key() {
   if (!hal_.display || !hal_.display->info().has_backlight) return;
-  if (battery_alert_) {  // like any other press, it only closes the low battery alert
-    dismiss_battery_alert();
-    return;
-  }
+  close_notices_for_input();  // like any other press: it closes the alert and does its own thing
   if (display_sleeping_ || display_dimmed_) {
     wake_display();
     return;
@@ -147,6 +144,10 @@ void App::play_tones(const Tone* tones, size_t count) {
   if (pcm.empty() || !hal_.speaker->begin(profile_.speaker_rate)) return;
   hal_.speaker->write(pcm.data(), pcm.size());
   hal_.speaker->end();
+}
+
+void App::close_notices_for_input() {
+  if (battery_alert_) dismiss_battery_alert();
 }
 
 void App::dismiss_battery_alert() {
