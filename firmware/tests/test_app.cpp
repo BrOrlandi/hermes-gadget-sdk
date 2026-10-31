@@ -2634,7 +2634,8 @@ TEST("battery alert: beeps by default, once with each alert, and battery_alert_s
   battery.on_battery(10);
   r.advance(5000);
   CHECK_EQ(int(r.app.battery_alert()), 10);
-  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * 360 / 1000));  // 880 Hz 120 ms, 80 ms, 660 Hz 160 ms
+  // 150 ms of lead-in silence, then 880 Hz 120 ms, 80 ms, 660 Hz 160 ms
+  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * (150 + 360) / 1000));
   const size_t after_first = r.fake.spk_samples;
   r.advance(5000);
   CHECK_EQ(r.fake.spk_samples, after_first);  // once, not with each reading
@@ -2658,6 +2659,11 @@ TEST("tones: each note lasts its time plus its gap, and starts and ends silent")
   for (size_t i = 0; i < 1600; ++i) peak = std::max(peak, std::abs(int(pcm[i])));
   CHECK(peak > 7000 && peak <= 8000);
   for (size_t i = 1600; i < 2400; ++i) CHECK_EQ(pcm[i], int16_t(0));  // the gap
+  // A lead-in: that much silence first, then the same notes.
+  const auto led = hg::synth_tones(tones, 2, 16000, hg::kToneLeadMs);
+  CHECK_EQ(led.size(), pcm.size() + size_t(16000 * 150 / 1000));
+  for (size_t i = 0; i < 2400; ++i) CHECK_EQ(led[i], int16_t(0));
+  CHECK(std::equal(pcm.begin(), pcm.end(), led.begin() + 2400));
 }
 
 TEST("battery alert: the indicator turns red at 15%, or at the highest alert level when higher") {
