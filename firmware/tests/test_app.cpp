@@ -2005,6 +2005,8 @@ TEST("doze: external power never dozes, and plugging in ends a doze within 100 m
   r.fake.backlight = true;
   r.hal.power = &key;
   r.bring_online(true);
+  // The charging notice would light the screen on plugging in; this is about the doze alone.
+  CHECK_EQ(r.app.console("set charging_notice off"), std::string("@ok charging_notice"));
   key.presses = 1;
   r.advance(1000);
   CHECK_EQ(r.fake.brightness, 0);
@@ -2423,7 +2425,7 @@ TEST("power: failed readings replace stale data and shutdown requires a second l
   CHECK(status["power"]["battery_mv"].is_null());
   CHECK((*r.fake.last("state"))["sensors"]["battery_mv"].is_null());
   r.app.open_settings();
-  for (int i = 0; i < 13; ++i) r.app.console("cancel");  // the Clock face item sits before Power off
+  for (int i = 0; i < 14; ++i) r.app.console("cancel");  // the Clock face item sits before Power off
   CHECK_EQ(r.app.model().detail, std::string("Power off"));
   r.app.console("talk"); r.app.console("release");
   CHECK_EQ(battery.shutdowns, 0);
@@ -2436,6 +2438,7 @@ namespace {
 struct AlertPower : hg::Power {
   hg::PowerStatus status{true, 3800, 50, false, false};
   std::optional<hg::PowerStatus> read() override { return status; }
+  std::optional<bool> external_power() override { return status.external_power; }
   bool power_off() override { return false; }
   void on_battery(uint8_t percent) { status.battery_percent = percent; status.charging = status.external_power = false; }
   void on_usb(uint8_t percent) { status.battery_percent = percent; status.charging = status.external_power = true; }
@@ -2692,6 +2695,112 @@ TEST("battery alert: the indicator turns red at 15%, or at the highest alert lev
   battery.on_usb(5);
   r.advance(5000);
   CHECK(!r.app.model().battery_low);  // never red on USB
+}
+
+TEST("charging notice: plugging in lights the dark screen with the level, which then times out as usual") {
+  AlertPower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.fake.backlight = true;
+  battery.on_usb(60);  // booting on USB shows nothing: no battery-only reading came first
+  r.bring_online(true);
+  auto wait = [&](uint32_t ms) {
+    for (uint32_t done = 0; done < ms; done += 5000) {
+      r.server(R"({"type":"ping"})");
+      r.advance(std::min<uint32_t>(5000, ms - done));
+    }
+  };
+  wait(5000);
+  CHECK(!r.app.charging_notice());
+  CHECK_EQ(r.app.console("set screen_timeout 30"), std::string("@ok screen_timeout"));
+  battery.on_battery(42);
+  wait(31000);
+  CHECK_EQ(r.fake.brightness, 0);
+  battery.on_usb(42);
+  r.advance(200);  // a dark screen notices USB within the 100 ms supply poll
+  CHECK(r.app.charging_notice());
+  CHECK_EQ(r.fake.brightness, 100);
+  CHECK(r.app.screen() == hg::Screen::Card);
+  CHECK_EQ(r.app.model().headline, std::string("Charging"));
+  CHECK_EQ(r.app.model().detail, std::string("Battery at 42%"));
+  wait(5000);
+  CHECK(!r.app.charging_notice());
+  CHECK(r.app.screen() == hg::Screen::Ready);
+  CHECK_EQ(r.fake.brightness, 100);  // lit until the normal timeout
+  wait(26000);
+  CHECK_EQ(r.fake.brightness, 0);
+  battery.on_battery(42);  // unplugging shows nothing
+  wait(5000);
+  CHECK(!r.app.charging_notice());
+  CHECK_EQ(r.fake.brightness, 0);
+}
+
+TEST("charging notice: replaces the low battery alert, closes with a press, and goes back dark without a timeout") {
+  AlertPower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.fake.backlight = true;
+  r.bring_online(true);
+  CHECK_EQ(r.app.console("set battery_alert 10"), std::string("@ok battery_alert"));
+  battery.on_battery(9);
+  r.advance(5000);
+  CHECK_EQ(int(r.app.battery_alert()), 10);
+  battery.on_usb(9);
+  r.advance(5000);
+  CHECK_EQ(int(r.app.battery_alert()), 0);
+  CHECK(r.app.charging_notice());
+  r.app.on_button(hg::Button::Talk, true);  // closes it, and records nothing
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK(!r.app.charging_notice());
+  CHECK(!r.fake.mic_on);
+  // No screen timeout: a screen the power key darkened goes dark again after the notice.
+  struct : AlertPower {
+    int presses = 0;
+    bool take_key_press() override {
+      if (!presses) return false;
+      --presses;
+      return true;
+    }
+  } keyed;
+  Rig k;
+  k.hal.power = &keyed;
+  k.fake.backlight = true;
+  k.bring_online(true);
+  keyed.on_battery(50);
+  k.advance(5000);
+  keyed.presses = 1;
+  k.advance(200);
+  CHECK_EQ(k.fake.brightness, 0);
+  keyed.on_usb(50);
+  k.advance(200);
+  CHECK(k.app.charging_notice());
+  CHECK_EQ(k.fake.brightness, 100);
+  k.advance(5000);
+  CHECK(!k.app.charging_notice());
+  CHECK_EQ(k.fake.brightness, 0);
+}
+
+TEST("charging notice: off leaves the screen dark, and the settings item toggles it") {
+  AlertPower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.fake.backlight = true;
+  r.bring_online(true);
+  CHECK_EQ(r.app.console("set charging_notice maybe"), std::string("@error charging_notice must be on or off"));
+  CHECK(r.app.open_settings());
+  for (int i = 0; i < 20 && r.app.model().detail != "Charging screen"; ++i) r.app.on_button(hg::Button::Down, true);
+  CHECK_EQ(r.app.model().detail, std::string("Charging screen"));
+  CHECK(r.app.model().body.rfind("On\n", 0) == 0);
+  r.app.on_button(hg::Button::Talk, true);
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK(r.app.model().body.rfind("Off\n", 0) == 0);
+  CHECK_EQ(r.fake.kv["charging_notice"], std::string("off"));
+  r.app.close_settings();
+  battery.on_battery(50);
+  r.advance(5000);
+  battery.on_usb(50);
+  r.advance(5000);
+  CHECK(!r.app.charging_notice());
 }
 
 TEST("battery alert: the setting takes off or up to three levels, and the settings item steps through presets") {

@@ -63,6 +63,9 @@ const Entry kSpanish[] = {
     {Msg::BatteryAlertSound, "Sonido de batería baja"},
     {Msg::BatteryAlertSoundOn, "Activado\nEl aviso de batería baja suena."},
     {Msg::BatteryAlertSoundOff, "Desactivado\nEl aviso de batería baja no suena."},
+    {Msg::ChargingNotice, "Pantalla al cargar"},
+    {Msg::ChargingNoticeOn, "Activado\nAl conectar el USB se ve el nivel de batería."},
+    {Msg::ChargingNoticeOff, "Desactivado\nAl conectar el USB la pantalla no cambia."},
     {Msg::TouchWake, "Tocar enciende"},
     {Msg::TouchWakeOn, "Activado\nUn toque enciende la pantalla apagada."},
     {Msg::TouchWakeOff, "Desactivado\nSolo un botón enciende la pantalla apagada."},
@@ -195,6 +198,7 @@ const Entry kSpanish[] = {
     {Msg::LowBattery, "Batería baja: conecta USB"},
     {Msg::LowBatteryTitle, "Batería baja"},
     {Msg::ConnectUsbToCharge, "Conecta el USB para cargar"},
+    {Msg::ChargingLevel, "Batería al {0}%"},
     // Timers
     {Msg::TimerLeft, "Quedan {0}"},
     {Msg::TimerDone, "TIEMPO AGOTADO"},
