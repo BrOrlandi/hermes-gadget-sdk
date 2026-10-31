@@ -2425,7 +2425,7 @@ TEST("power: failed readings replace stale data and shutdown requires a second l
   CHECK(status["power"]["battery_mv"].is_null());
   CHECK((*r.fake.last("state"))["sensors"]["battery_mv"].is_null());
   r.app.open_settings();
-  for (int i = 0; i < 15; ++i) r.app.console("cancel");  // the Clock face item sits before Power off
+  for (int i = 0; i < 17; ++i) r.app.console("cancel");  // the Clock face item sits before Power off
   CHECK_EQ(r.app.model().detail, std::string("Power off"));
   r.app.console("talk"); r.app.console("release");
   CHECK_EQ(battery.shutdowns, 0);
@@ -2829,6 +2829,89 @@ TEST("charging notice: silent by default; charging_sound on chirps once on plugg
   CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * 240 / 1000));  // 660 Hz 80 ms, 20 ms, 990 Hz 140 ms
   r.advance(5000);
   CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * 240 / 1000));  // once per plug
+}
+
+TEST("full battery: once per charge, when charging ends or the gauge reaches 100%, with a chime") {
+  AlertPower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.fake.backlight = true;
+  r.bring_online(true);
+  battery.on_battery(90);
+  r.advance(5000);
+  battery.on_usb(90);
+  r.advance(5000);
+  CHECK(r.app.charging_notice());
+  r.advance(5000);
+  CHECK(!r.app.charging_notice());
+  size_t before = r.fake.spk_samples;
+  battery.status.battery_percent = 100;
+  battery.status.charging = false;  // charge done, still on USB
+  r.advance(5000);
+  CHECK(r.app.charged_notice());
+  CHECK(r.app.screen() == hg::Screen::Charged);
+  CHECK_EQ(r.app.model().headline, std::string("100%"));
+  CHECK_EQ(r.app.model().detail, std::string("Battery full\nYou can unplug"));
+  CHECK_EQ(int(r.app.model().face_battery), 100);
+  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * 420 / 1000));  // 784 Hz 140 ms, 40 ms, 1046 Hz 240 ms
+  r.advance(5000);
+  CHECK(!r.app.charged_notice());  // gone after 5 s
+  battery.status.charging = true;  // the charger tops up and stops again: still the same charge
+  r.advance(5000);
+  battery.status.charging = false;
+  r.advance(5000);
+  CHECK(!r.app.charged_notice());
+  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * 420 / 1000));
+  // Unplugged and plugged back in full: nothing charged, nothing said.
+  battery.on_battery(100);
+  r.advance(5000);
+  battery.on_usb(100);
+  battery.status.charging = false;
+  r.advance(5000);
+  r.advance(5000);
+  CHECK(!r.app.charged_notice());
+  // A new charge whose gauge reaches 100% while still charging counts as full.
+  battery.on_battery(80);
+  r.advance(5000);
+  battery.on_usb(80);
+  r.advance(10000);
+  battery.status.battery_percent = 100;
+  r.advance(5000);
+  CHECK(r.app.charged_notice());
+}
+
+TEST("full battery: the screen and the chime are separate settings, and a busy screen waits") {
+  AlertPower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.fake.backlight = true;
+  r.bring_online(true);
+  CHECK_EQ(r.app.console("set charged_notice maybe"), std::string("@error charged_notice must be on or off"));
+  CHECK_EQ(r.app.console("set charged_notice off"), std::string("@ok charged_notice"));
+  battery.on_usb(95);
+  r.advance(5000);
+  size_t before = r.fake.spk_samples;
+  battery.status.charging = false;
+  r.advance(5000);
+  CHECK(!r.app.charged_notice());
+  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * 420 / 1000));  // the chime alone
+  CHECK_EQ(r.app.console("set charged_notice on"), std::string("@ok charged_notice"));
+  CHECK_EQ(r.app.console("set charged_sound off"), std::string("@ok charged_sound"));
+  battery.on_battery(95);
+  r.advance(5000);
+  battery.on_usb(95);
+  r.advance(6000);
+  r.app.on_button(hg::Button::Talk, true);  // talking: the notice waits
+  before = r.fake.spk_samples;
+  battery.status.charging = false;
+  r.advance(5000);
+  CHECK(!r.app.charged_notice());
+  r.app.on_button(hg::Button::Cancel, true);
+  r.app.on_button(hg::Button::Cancel, false);
+  r.app.on_button(hg::Button::Talk, false);
+  r.advance(5000);
+  CHECK(r.app.charged_notice());
+  CHECK_EQ(r.fake.spk_samples, before);  // charged_sound off
 }
 
 TEST("battery alert: the setting takes off or up to three levels, and the settings item steps through presets") {
