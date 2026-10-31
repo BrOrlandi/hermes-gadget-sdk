@@ -15,6 +15,11 @@ constexpr uint32_t kMotionStaleMs = 2000;  // a silent sensor never keeps the sc
 // The resting clock's share of the brightness setting: AMOLED care, with a floor
 // so a very low setting keeps the face readable.
 constexpr int kClockPercent = 70;
+// The low battery alert stays up this long unless a press or a tap closes it first.
+constexpr uint32_t kBatteryAlertMs = 30000;
+// A spent alert level rearms once a charger lifts the reading this far above it, so
+// a percentage that wobbles across a level, or a short time on USB, never repeats it.
+constexpr int kBatteryAlertRearm = 5;
 
 }  // namespace
 
@@ -74,6 +79,10 @@ void App::set_dozing(bool dozing) {
 
 void App::on_power_key() {
   if (!hal_.display || !hal_.display->info().has_backlight) return;
+  if (battery_alert_) {  // like any other press, it only closes the low battery alert
+    dismiss_battery_alert();
+    return;
+  }
   if (display_sleeping_ || display_dimmed_) {
     wake_display();
     return;
@@ -88,7 +97,49 @@ void App::on_power_key() {
 bool App::screen_busy() const {
   return mode_ != Mode::Idle || speaking() || talk_held_ || cancel_held_ || prompt_showing() ||
          !wifi_setup_text_.empty() || phone_pairing_ || ota_busy() || ota_ == Ota::Restarting ||
-         overlay_ != Overlay::None;
+         overlay_ != Overlay::None || battery_alert_;
+}
+
+// After each power reading. A level is crossed on battery when the percentage is at or
+// below it with an explicit battery-only reading; the lowest level crossed is the one shown.
+void App::battery_alert_check() {
+  if (!battery_alert_levels_[0] || !power_status_) return;
+  const auto percent = display_battery_percent();
+  if (!percent) return;
+  const auto& p = *power_status_;
+  if (p.external_power == true || p.charging == true) {
+    // Charging rearms the spent levels the reading has climbed clear of, lowest first.
+    while (battery_alert_spent_ && *percent >= battery_alert_spent_ + kBatteryAlertRearm) {
+      uint8_t next = 0;  // the next level above the spent one, or none
+      for (uint8_t level : battery_alert_levels_)
+        if (level > battery_alert_spent_ && (!next || level < next)) next = level;
+      battery_alert_spent_ = next;
+    }
+    if (battery_alert_) dismiss_battery_alert();  // plugging in answers it
+    return;
+  }
+  if (p.external_power != false) return;  // unknown supply: no alert, as with the red indicator
+  uint8_t crossed = 0;
+  for (uint8_t level : battery_alert_levels_)
+    if (level && *percent <= level) crossed = level;  // highest first: the last match is the lowest
+  if (!crossed || (battery_alert_spent_ && crossed >= battery_alert_spent_)) return;
+  // A busy screen, a dark face-down gadget or the boot screen: the next reading tries again.
+  if (battery_alert_ || face_down_ || alarm_ || phase_ == Phase::Boot || settings_open() || screen_busy()) return;
+  battery_alert_spent_ = crossed;
+  battery_alert_ = crossed;
+  battery_alert_percent_ = *percent;
+  battery_alert_until_ = now() + kBatteryAlertMs;
+  log(LogLevel::Info, "low battery alert: " + std::to_string(*percent) + "%");
+  wake_display();
+  if (ui_) ui_->invalidate();
+  update_model();
+}
+
+void App::dismiss_battery_alert() {
+  if (!battery_alert_) return;
+  battery_alert_ = 0;
+  if (ui_) ui_->invalidate();
+  update_model();
 }
 
 void App::power_tick() {
@@ -97,7 +148,13 @@ void App::power_tick() {
     power_read_at_ = now();
     sensors_dirty_ = true;
     if (settings_open()) update_model();
+    battery_alert_check();
   }
+  // Something else took the screen, or its time ran out: the alert goes.
+  if (battery_alert_ && (static_cast<int32_t>(now() - battery_alert_until_) >= 0 || mode_ != Mode::Idle ||
+                         prompt_showing() || alarm_ || face_down_ || settings_open() || !wifi_setup_text_.empty() ||
+                         phone_pairing_ || ota_busy() || ota_ == Ota::Restarting))
+    dismiss_battery_alert();
   constexpr uint32_t kPowerKeyPollMs = 100;
   if (hal_.power && now() - power_key_polled_at_ >= kPowerKeyPollMs) {
     power_key_polled_at_ = now();
