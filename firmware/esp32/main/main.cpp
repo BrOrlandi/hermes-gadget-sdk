@@ -564,8 +564,19 @@ extern "C" void app_main(void) {
   app.recent_log = &hgp::diag::recent_log;
   if (board.light_sleep) keep_pins_through_sleep(board);
 #if !CONFIG_HG_BOARD_ESP32_CYD
-  g_system.on_doze_start = [] { g_codec_speaker.power_down(); };
-  g_system.on_doze_end = [] {
+  // Each doze logs the battery at its start and end, so a battery run can be read back from `diag log`.
+  auto log_battery = [power = hal.power](const char* when) {
+    const auto status = power ? power->read() : std::nullopt;
+    if (!status || !status->battery_mv) return;
+    ESP_LOGI("hg.power", "battery %s: %u mV, %d%%", when, static_cast<unsigned>(*status->battery_mv),
+             status->battery_percent ? static_cast<int>(*status->battery_percent) : -1);
+  };
+  g_system.on_doze_start = [log_battery] {
+    log_battery("dozing");
+    g_codec_speaker.power_down();
+  };
+  g_system.on_doze_end = [log_battery] {
+    log_battery("awake");
     g_touch.nudge();
     g_codec_speaker.power_up();
     g_wifi.retry_now();
