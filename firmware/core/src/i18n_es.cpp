@@ -198,7 +198,6 @@ const Entry kSpanish[] = {
     {Msg::LowBattery, "Batería baja: conecta USB"},
     {Msg::LowBatteryTitle, "Batería baja"},
     {Msg::ConnectUsbToCharge, "Conecta el USB para cargar"},
-    {Msg::ChargingLevel, "Batería al {0}%"},
     // Timers
     {Msg::TimerLeft, "Quedan {0}"},
     {Msg::TimerDone, "TIEMPO AGOTADO"},
