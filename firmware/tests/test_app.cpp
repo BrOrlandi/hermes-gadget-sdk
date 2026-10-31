@@ -2951,6 +2951,66 @@ TEST("full battery: a charger still starting up, or flickering off for a reading
   CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * (150 + 420) / 1000));
 }
 
+TEST("power notices: every notice and sound is optional, from the settings and from the console") {
+  AlertPower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.bring_online(true);
+  struct Item { const char* label; const char* key; const char* storage; const char* off; };
+  const Item items[] = {
+      {"Low battery alert", "battery_alert", "battery_alert", "off"},
+      {"Low battery sound", "battery_alert_sound", "batt_alert_snd", "off"},
+      {"Charging screen", "charging_notice", "charging_notice", "off"},
+      {"Full battery screen", "charged_notice", "charged_notice", "off"},
+      {"Full battery sound", "charged_sound", "charged_sound", "off"},
+  };
+  CHECK_EQ(r.app.console("set battery_alert 10"), std::string("@ok battery_alert"));
+  for (const Item& item : items) {
+    CHECK(r.app.open_settings());
+    for (int i = 0; i < 30 && r.app.model().detail != item.label; ++i) r.app.on_button(hg::Button::Down, true);
+    CHECK_EQ(r.app.model().detail, std::string(item.label));
+    // Each select steps the item; one of the steps is off.
+    bool reached_off = false;
+    for (int i = 0; i < 6 && !reached_off; ++i) {
+      r.app.on_button(hg::Button::Talk, true);
+      r.app.on_button(hg::Button::Talk, false);
+      reached_off = r.fake.kv[item.storage] == item.off;
+    }
+    CHECK(reached_off);
+    r.app.close_settings();
+    // The console turns each one off too (battery_alert takes levels rather than on).
+    const std::string key = item.key;
+    CHECK_EQ(r.app.console("set " + key + (key == "battery_alert" ? " 10" : " on")), "@ok " + key);
+    CHECK_EQ(r.app.console("set " + key + " off"), "@ok " + key);
+    CHECK_EQ(r.fake.kv[item.storage], std::string("off"));
+  }
+  // The charging sound is off by default, and its item turns it on and off again.
+  CHECK(r.app.open_settings());
+  for (int i = 0; i < 30 && r.app.model().detail != "Charging sound"; ++i) r.app.on_button(hg::Button::Down, true);
+  CHECK(r.app.model().body.rfind("Off\n", 0) == 0);
+  r.app.on_button(hg::Button::Talk, true);
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK_EQ(r.fake.kv["charging_sound"], std::string("on"));
+  r.app.on_button(hg::Button::Talk, true);
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK_EQ(r.fake.kv["charging_sound"], std::string("off"));
+  r.app.close_settings();
+  // All off: a whole discharge and charge stays dark and silent.
+  r.fake.backlight = true;
+  const size_t before = r.fake.spk_samples;
+  battery.on_battery(5);
+  r.advance(5000);
+  battery.on_usb(5);
+  r.advance(5000);
+  battery.status.battery_percent = 100;
+  battery.status.charging = false;
+  r.advance(20000);
+  CHECK_EQ(int(r.app.battery_alert()), 0);
+  CHECK(!r.app.charging_notice());
+  CHECK(!r.app.charged_notice());
+  CHECK_EQ(r.fake.spk_samples, before);
+}
+
 TEST("battery alert: the setting takes off or up to three levels, and the settings item steps through presets") {
   AlertPower battery;
   Rig r;
