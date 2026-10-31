@@ -2854,7 +2854,11 @@ TEST("full battery: once per charge, when charging ends or the gauge reaches 100
   CHECK_EQ(r.app.model().detail, std::string("Battery full\nYou can unplug"));
   CHECK_EQ(int(r.app.model().face_battery), 100);
   CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * 420 / 1000));  // 784 Hz 140 ms, 40 ms, 1046 Hz 240 ms
-  r.advance(5000);
+  r.fake.spk_draining = true;  // its own chime still playing does not close it
+  r.advance(1000);
+  CHECK(r.app.charged_notice());
+  r.fake.spk_draining = false;
+  r.advance(4000);
   CHECK(!r.app.charged_notice());  // gone after 5 s
   battery.status.charging = true;  // the charger tops up and stops again: still the same charge
   r.advance(5000);
