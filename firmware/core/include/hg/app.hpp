@@ -167,6 +167,8 @@ class App {
   // An input on a lit screen closes the alert first, then goes on as usual (a touch
   // calls this at touch-down, so its hit tests see the screen underneath).
   void close_notices_for_input();
+  // The charging notice is on screen: USB was just plugged in.
+  bool charging_notice() const { return charging_notice_; }
   std::string agent_profile_name() const;
   // Returns true when this input only wakes a sleeping display.
   bool wake_display();
@@ -424,7 +426,7 @@ class App {
   bool lang_auto_ = false;
   std::optional<i18n::Lang> hermes_lang_;  // from the last `welcome` that named one this firmware has
   enum class Menu : uint8_t { Closed, Volume, Brightness, TalkMode, Profile, Microphone, Speaker, Display, Inputs,
-                              Info, Power, BatteryAlert, BatteryAlertSound, IdleTimer, TouchWake, FaceDownSleep, Clock, PowerOff, WifiSetup, Phone, Language, Back };
+                              Info, Power, BatteryAlert, BatteryAlertSound, ChargingNotice, IdleTimer, TouchWake, FaceDownSleep, Clock, PowerOff, WifiSetup, Phone, Language, Back };
   enum class HardwareCheck : uint8_t { None, Microphone, Speaker, Display, Inputs };
   Menu menu_ = Menu::Closed;
   HardwareCheck hardware_check_ = HardwareCheck::None;
@@ -478,6 +480,14 @@ class App {
   // A short local sound (hg/tones.hpp), only into a quiet speaker: never over Hermes,
   // an open microphone, the alarm or a gadget lying face down.
   void play_tones(const Tone* tones, size_t count);
+  // The `charging_notice` setting: plugging in lights the screen with the level for a moment.
+  bool charging_notice_enabled_ = true;
+  bool charging_notice_ = false;          // on screen
+  bool charging_notice_darkens_ = false;  // it lit a dark screen that no timeout will darken again
+  uint32_t charging_notice_until_ = 0;
+  std::optional<bool> plugged_;           // the last known supply: true on USB, unknown until read
+  void note_supply(std::optional<bool> plugged);
+  void dismiss_charging_notice(bool darken);
   bool display_dimmed_ = false, display_sleeping_ = false, power_off_armed_ = false;
   bool dozing_ = false, on_battery_ = false;
   void set_dozing(bool dozing);

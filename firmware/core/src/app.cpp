@@ -64,7 +64,7 @@ constexpr uint32_t kBackoffMs[] = {1000, 2000, 4000, 8000, 15000, 30000};
 constexpr size_t kBackoffSteps = sizeof(kBackoffMs) / sizeof(kBackoffMs[0]);
 
 const char* const kSettingKeys[] = {"name", "server", "token", "talk_mode", "volume", "brightness", "screen_timeout", "battery_display", "battery_estimate", "language", "wifi_ssid", "wifi_pass",
-                                    "face_down_sleep", "clock", "time_format", "touch_wake", "battery_alert", "battery_alert_sound"};
+                                    "face_down_sleep", "clock", "time_format", "touch_wake", "battery_alert", "battery_alert_sound", "charging_notice"};
 
 // NVS limits storage keys to 15 characters; keep the public setting name unchanged.
 std::string_view setting_storage_key(std::string_view key) {
@@ -225,6 +225,7 @@ void App::load_settings() {
     }
   }
   battery_alert_sound_ = setting("battery_alert_sound", "on") != "off";
+  charging_notice_enabled_ = setting("charging_notice", "on") != "off";
   const std::string language = setting("language", "en");
   lang_auto_ = language == "auto";
   lang_ = lang_auto_ ? hermes_lang_.value_or(i18n::Lang::En) : i18n::parse(language).value_or(i18n::Lang::En);
@@ -2075,6 +2076,18 @@ void App::update_model() {
     m.hint.clear();
     if (!display_sleeping_) render(m);
     return;
+  } else if (charging_notice_) {
+    // The level as it reads now; a voltage estimate reads high on a charger, so it shows none.
+    m.screen = Screen::Card;
+    m.hero = true;
+    m.caption_lines = kCaptionLines;
+    m.headline = tr(Msg::Charging);
+    const auto percent = display_battery_percent();
+    m.detail = percent && !battery_is_estimated() ? tr(Msg::ChargingLevel, {std::to_string(*percent)})
+                                                  : std::string(tr(Msg::UsbPower));
+    m.hint.clear();
+    if (!display_sleeping_) render(m);
+    return;
   } else if (!fatal_.empty()) {
     m.screen = Screen::Error;
     m.hero = true;
@@ -2418,6 +2431,8 @@ std::string App::console(std::string_view raw) {
       return "@error battery_alert must be off or up to 3 percentages from 1 to 50, like 10,5";
     if (key == "battery_alert_sound" && !value.empty() && value != "on" && value != "off")
       return "@error battery_alert_sound must be on or off";
+    if (key == "charging_notice" && !value.empty() && value != "on" && value != "off")
+      return "@error charging_notice must be on or off";
     if (key == "clock" && !value.empty() &&
         (value.size() > 4 || value.find_first_not_of("0123456789") != std::string::npos ||
          (std::atoi(value.c_str()) != 0 && (std::atoi(value.c_str()) < 5 || std::atoi(value.c_str()) > 3600))))

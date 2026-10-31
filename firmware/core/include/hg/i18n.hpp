@@ -76,6 +76,9 @@ namespace hg::i18n {
   X(BatteryAlertSound,      "Low battery sound") \
   X(BatteryAlertSoundOn,    "On\nThe low battery alert beeps.") \
   X(BatteryAlertSoundOff,   "Off\nThe low battery alert is silent.") \
+  X(ChargingNotice,         "Charging screen") \
+  X(ChargingNoticeOn,       "On\nPlugging in USB shows the battery level.") \
+  X(ChargingNoticeOff,      "Off\nPlugging in USB leaves the screen as it is.") \
   X(TouchWake,              "Touch wakes screen") \
   X(TouchWakeOn,            "On\nA touch lights the dark screen.") \
   X(TouchWakeOff,           "Off\nOnly a button lights the dark screen.") \
@@ -208,6 +211,7 @@ namespace hg::i18n {
   X(LowBattery,             "Low battery: connect USB") \
   X(LowBatteryTitle,        "Low battery") \
   X(ConnectUsbToCharge,     "Connect USB to charge") \
+  X(ChargingLevel,          "Battery at {0}%") \
   /* Timers */ \
   X(TimerLeft,              "Timer {0}") \
   X(TimerDone,              "TIMER DONE") \
