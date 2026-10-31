@@ -2896,7 +2896,7 @@ TEST("full battery: the screen and the chime are separate settings, and a busy s
   r.advance(5000);
   size_t before = r.fake.spk_samples;
   battery.status.charging = false;
-  r.advance(5000);
+  r.advance(15000);  // three readings in a row: the charge has ended
   CHECK(!r.app.charged_notice());
   CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * 420 / 1000));  // the chime alone
   CHECK_EQ(r.app.console("set charged_notice on"), std::string("@ok charged_notice"));
@@ -2908,7 +2908,7 @@ TEST("full battery: the screen and the chime are separate settings, and a busy s
   r.app.on_button(hg::Button::Talk, true);  // talking: the notice waits
   before = r.fake.spk_samples;
   battery.status.charging = false;
-  r.advance(5000);
+  r.advance(15000);
   CHECK(!r.app.charged_notice());
   r.app.on_button(hg::Button::Cancel, true);
   r.app.on_button(hg::Button::Cancel, false);
@@ -2916,6 +2916,39 @@ TEST("full battery: the screen and the chime are separate settings, and a busy s
   r.advance(5000);
   CHECK(r.app.charged_notice());
   CHECK_EQ(r.fake.spk_samples, before);  // charged_sound off
+}
+
+TEST("full battery: a charger still starting up, or flickering off for a reading, is no full battery") {
+  AlertPower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.fake.backlight = true;
+  r.bring_online(true);
+  battery.on_battery(90);
+  r.advance(5000);
+  const size_t before = r.fake.spk_samples;
+  // Plugged in at 90%: the first reading still says not charging, the next ones charging.
+  battery.on_usb(90);
+  battery.status.charging = false;
+  r.advance(5000);
+  CHECK(r.app.charging_notice());
+  CHECK(!r.app.charged_notice());
+  battery.status.charging = true;
+  r.advance(10000);
+  CHECK(!r.app.charged_notice());
+  // One reading off, then charging again: still charging.
+  battery.status.charging = false;
+  r.advance(5000);
+  battery.status.charging = true;
+  r.advance(5000);
+  CHECK(!r.app.charged_notice());
+  battery.status.charging = false;  // two readings off: not yet
+  r.advance(10000);
+  CHECK(!r.app.charged_notice());
+  CHECK_EQ(r.fake.spk_samples, before);  // no sound at any point so far
+  r.advance(5000);  // the third in a row: the charge has ended
+  CHECK(r.app.charged_notice());
+  CHECK_EQ(r.fake.spk_samples - before, size_t(16000 * 420 / 1000));
 }
 
 TEST("battery alert: the setting takes off or up to three levels, and the settings item steps through presets") {

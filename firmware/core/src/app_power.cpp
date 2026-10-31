@@ -29,6 +29,9 @@ constexpr uint32_t kChargingNoticeMs = 5000;
 constexpr Tone kChargingTones[] = {{660, 80, 20, 8000}, {990, 140, 0, 8000}};
 // A full battery's sound: a soft rising 784/1046 Hz chime.
 constexpr Tone kChargedTones[] = {{784, 140, 40, 7000}, {1046, 240, 0, 7000}};
+// Readings in a row (5 s apart) that the charging signal must read false, after reading
+// true, before the charge counts as finished.
+constexpr uint8_t kChargeEndReads = 3;
 
 }  // namespace
 
@@ -172,21 +175,31 @@ bool App::show_power_notice(PowerNotice notice) {
   return true;
 }
 
-// Each reading on USB: the battery is full once a charge ends (the charging signal goes
-// false) or the percentage reaches 100. Once per charge, and only after charging was seen,
-// so plugging in a full battery says nothing. A busy screen holds it for a later reading.
+// Each reading on USB: the battery is full once a charge ends, or once the gauge climbs
+// to 100%. A charge has ended when the charging signal, after reading true, reads false
+// kChargeEndReads readings in a row with USB still in: a charger that is still starting
+// up, or that flickers off for a reading, ends nothing. The gauge counts only after it read
+// below 100% on this plug (and, where the board reports charging, after charging was seen).
+// Once per plug; a busy screen holds it for a later reading.
 void App::charged_check() {
   if (plugged_ != true || !power_status_) {
-    charge_seen_ = charged_done_ = false;
+    reset_charge();
     return;
   }
   if (charged_done_ || phase_ == Phase::Boot) return;
   const auto& p = *power_status_;
   const auto percent = display_battery_percent();
   const bool gauge = percent && !battery_is_estimated();  // an estimate reads high on a charger
-  if (p.charging == true || (!p.charging && gauge && *percent < 100)) charge_seen_ = true;
-  const bool full = charge_seen_ && (p.charging == false || (gauge && *percent >= 100));
-  if (!full) return;
+  if (p.charging == true) {
+    charge_seen_ = true;
+    charge_stopped_reads_ = 0;
+  } else if (p.charging == false && charge_seen_ && charge_stopped_reads_ < kChargeEndReads) {
+    ++charge_stopped_reads_;
+  }
+  if (gauge && *percent < 100) below_full_seen_ = true;
+  const bool ended = charge_seen_ && charge_stopped_reads_ >= kChargeEndReads;
+  const bool reached = gauge && *percent >= 100 && below_full_seen_ && (charge_seen_ || !p.charging.has_value());
+  if (!ended && !reached) return;
   if (charged_notice_enabled_ && !show_power_notice(PowerNotice::Charged)) return;
   charged_done_ = true;
   if (charged_sound_) play_tones(kChargedTones, sizeof(kChargedTones) / sizeof(kChargedTones[0]));
@@ -196,10 +209,18 @@ void App::charged_check() {
 // screen with the charging notice. A busy or face-down screen is left as it is.
 void App::note_supply(std::optional<bool> plugged) {
   const bool plugged_in = plugged == true && plugged_ == false;
+  // Any change of supply starts a new charge, also an unplug and replug that only the
+  // dark screen's quick poll saw between two readings.
+  if (plugged != plugged_) reset_charge();
   plugged_ = plugged;
   if (!plugged_in || phase_ == Phase::Boot) return;
   if (charging_notice_enabled_) show_power_notice(PowerNotice::Charging);
   if (charging_sound_) play_tones(kChargingTones, sizeof(kChargingTones) / sizeof(kChargingTones[0]));
+}
+
+void App::reset_charge() {
+  charge_seen_ = charged_done_ = below_full_seen_ = false;
+  charge_stopped_reads_ = 0;
 }
 
 void App::dismiss_charging_notice(bool darken) {

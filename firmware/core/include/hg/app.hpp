@@ -494,9 +494,12 @@ class App {
   bool charging_notice_darkens_ = false;  // it lit a dark screen that no timeout will darken again
   uint32_t charging_notice_until_ = 0;
   std::optional<bool> plugged_;           // the last known supply: true on USB, unknown until read
-  // This charge: the battery was seen charging (or below 100% without a charging signal),
-  // and the full notice has had its turn. Both reset when USB goes.
-  bool charge_seen_ = false, charged_done_ = false;
+  // This plug: the battery was seen charging, the gauge read below 100%, readings in a row
+  // since charging stopped, and whether the full notice has had its turn. All reset when
+  // the supply changes.
+  bool charge_seen_ = false, below_full_seen_ = false, charged_done_ = false;
+  uint8_t charge_stopped_reads_ = 0;
+  void reset_charge();
   void note_supply(std::optional<bool> plugged);
   void charged_check();
   bool show_power_notice(PowerNotice notice);
