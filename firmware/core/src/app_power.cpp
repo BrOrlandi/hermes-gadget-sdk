@@ -78,6 +78,12 @@ void App::on_power_key() {
     wake_display();
     return;
   }
+  if (profile_picker_open()) {  // PWR is Back on the profile grid: Ready, still lit; the next press darkens
+    dismiss_overlay();
+    activity_at_ = now();
+    update_model();
+    return;
+  }
   display_sleeping_ = true;
   apply_backlight();
 }
@@ -88,7 +94,7 @@ void App::on_power_key() {
 bool App::screen_busy() const {
   return mode_ != Mode::Idle || speaking() || talk_held_ || cancel_held_ || prompt_showing() ||
          !wifi_setup_text_.empty() || phone_pairing_ || ota_busy() || ota_ == Ota::Restarting ||
-         overlay_ != Overlay::None;
+         (overlay_ != Overlay::None && overlay_ != Overlay::Profiles);  // the profile grid times out like Ready
 }
 
 void App::power_tick() {
@@ -130,6 +136,10 @@ void App::power_tick() {
       const uint32_t elapsed = now() - activity_at_;
       if (elapsed >= screen_timeout_ms_ && !display_sleeping_) {
         display_sleeping_ = true;
+        if (profile_picker_open()) {  // a grid left alone closes as the screen goes dark: it wakes to Ready
+          dismiss_overlay();
+          update_model();
+        }
         apply_backlight();
       } else if (elapsed >= screen_timeout_ms_ / 2 && !display_dimmed_ && !display_sleeping_) {
         display_dimmed_ = true;
@@ -219,7 +229,7 @@ void App::leave_face_down() {
 bool App::clock_blocked() const {
   if (!clock_after_ms_ || !hal_.display || !wall_valid_) return true;
   if (phase_ != Phase::Online || !paired_) return true;
-  if (screen_busy() || settings_open()) return true;
+  if (screen_busy() || settings_open() || profile_picker_open()) return true;  // the grid times out, but no clock over it
   if (alarm_ || timer_active()) return true;
   if (!fatal_.empty() || !notice_.empty()) return true;
   // The low-battery caption (update_model) holds the Ready screen the same way.
