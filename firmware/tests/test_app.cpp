@@ -1581,6 +1581,7 @@ TEST("touch: with touch_talk off, holds and taps on the screen never record in h
   r.app.on_button(hg::Button::Talk, false);
   CHECK(r.fake.last("audio.end") == nullptr);
 
+  r.advance(1000);  // past the double-press window, or this press goes home
   r.app.on_button(hg::Button::Talk, true);
   r.advance(600);
   r.app.on_button(hg::Button::Talk, false);
@@ -5002,7 +5003,7 @@ TEST("profiles: with touch_talk off, the name is a tap target in tap-to-talk mod
   r.app.console("set talk_mode tap");
   CHECK_EQ(name_point(r).first, -1);
   CHECK_EQ(r.app.console("set touch_talk off"), std::string("@ok touch_talk"));
-  CHECK_EQ(r.app.model().detail.rfind("Tap name to change", 0), size_t(0));
+  CHECK_EQ(r.app.model().detail.rfind("Swipe to change", 0), size_t(0));
   auto [x, y] = name_point(r);
   CHECK(x >= 0);
   hg::TouchGestures touch(r.app);
