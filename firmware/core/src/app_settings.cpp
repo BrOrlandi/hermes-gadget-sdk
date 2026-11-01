@@ -69,6 +69,7 @@ void App::settings_input(Button button, bool pressed) {
       switch (item) {
         case Menu::Profile: return agent_profiles_.size() > 1;
         case Menu::Power: return hal_.power != nullptr;
+        case Menu::TouchTalk: return profile_.touch_screen && profile_.talk_key;
         case Menu::TouchWake: return profile_.touch_screen && profile_.wake_key && hal_.display != nullptr;
         case Menu::FaceDownSleep: return can_sleep_face_down();
         case Menu::Clock: return hal_.display != nullptr;
@@ -105,6 +106,9 @@ void App::settings_input(Button button, bool pressed) {
       break;
     case Menu::TalkMode:
       if (hal_.mic) console(talk_mode_ == TalkMode::Hold ? "set talk_mode tap" : "set talk_mode hold");
+      break;
+    case Menu::TouchTalk:
+      console(touch_talk_ ? "set touch_talk off" : "set touch_talk on");
       break;
     case Menu::Profile:
       if (!(profile_.touch_screen ? open_profile_picker() : next_agent_profile()))
@@ -225,6 +229,10 @@ void App::settings_model() {
     case Menu::TalkMode:
       m.detail = tr(Msg::TalkMode);
       m.body = tr(!hal_.mic ? Msg::NoMicDriver : talk_mode_ == TalkMode::Hold ? Msg::TalkModeHold : Msg::TalkModeTap);
+      break;
+    case Menu::TouchTalk:
+      m.detail = tr(Msg::TouchTalk);
+      m.body = touch_talk_ ? std::string(tr(Msg::TouchTalkOn)) : tr(Msg::TouchTalkOff, {talk});
       break;
     case Menu::Profile:
       m.detail = tr(Msg::ProfileSetting);
