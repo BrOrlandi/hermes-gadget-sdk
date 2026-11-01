@@ -1,0 +1,102 @@
+Processing esp32s3-touch-amoled-206 (board: esp32-s3-devkitc-1; platform: espressif32; framework: espidf)
+--------------------------------------------------------------------------------
+Verbose mode can be enabled via `-v, --verbose` option
+CONFIGURATION: https://docs.platformio.org/page/boards/espressif32/esp32-s3-devkitc-1.html
+PLATFORM: Espressif 32 (7.1.3) > Espressif ESP32-S3-DevKitC-1-N8 (8 MB QD, No PSRAM)
+HARDWARE: ESP32S3 240MHz, 320KB RAM, 8MB Flash
+DEBUG: Current (esp-builtin) On-board (esp-builtin) External (cmsis-dap, esp-bridge, esp-prog, iot-bus-jtag, jlink, minimodule, olimex-arm-usb-ocd, olimex-arm-usb-ocd-h, olimex-arm-usb-tiny-h, olimex-jtag-tiny, tumpa)
+PACKAGES: 
+ - framework-espidf @ 4.60100.0 (6.1.0) 
+ - tool-cmake @ 3.30.2 
+ - tool-esp-rom-elfs @ 0.0.1+20241011 
+ - tool-esptoolpy @ 2.41100.260830 (4.11.0) 
+ - tool-ninja @ 1.13.2 
+ - tool-riscv32-esp-elf-gdb @ 12.1.0+20221002 
+ - tool-xtensa-esp-elf-gdb @ 12.1.0+20221002 
+ - toolchain-esp32ulp @ 1.23800.240113 (2.38.0) 
+ - toolchain-riscv32-esp @ 15.2.0+20251204 
+ - toolchain-xtensa-esp-elf @ 15.2.0+20251204
+Reading CMake configuration...
+LDF: Library Dependency Finder -> https://bit.ly/configure-pio-ldf
+LDF Modes: Finder ~ chain, Compatibility ~ soft
+Found 0 compatible libraries
+Scanning dependencies...
+No dependencies
+Building in release mode
+Compiling .pio/build/esp32s3-touch-amoled-206/main/main.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_amoled.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_audio.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_ble.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_buttons.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_codec.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_cores3.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_tca9554.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_console.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_dac.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_diag.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_display.cpp.o
+main/port_dac.cpp:16:13: warning: 'hgp::{anonymous}::TAG' defined but not used [-Wunused-variable]
+   16 | const char* TAG = "hg.dac";
+      |             ^~~
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_events.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_motion.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_ota.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_parallel.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_rgb.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_power.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_latch_power.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_opus.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_storage.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_system.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_time.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_touch.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_wifi.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_wifi_setup.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/main/port_ws.cpp.o
+main/port_touch.cpp: In member function 'bool hgp::TouchInput::read_touch(hgp::TouchSample&)':
+main/port_touch.cpp:140:52: warning: 'bool esp_lcd_touch_get_coordinates(esp_lcd_touch_handle_t, uint16_t*, uint16_t*, uint16_t*, uint8_t*, uint8_t)' is deprecated: This API will be removed in version 2.0.0. Use esp_lcd_touch_get_data instead! [-Wdeprecated-declarations]
+  140 |     const bool down = esp_lcd_touch_get_coordinates(managed_touch_, &x, &y, nullptr, &points, 1);
+      |                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from main/port.hpp:54,
+                 from main/port_touch.cpp:5:
+managed_components/espressif__esp_lcd_touch/include/esp_lcd_touch.h:317:6: note: declared here
+  317 | bool esp_lcd_touch_get_coordinates(esp_lcd_touch_handle_t tp, uint16_t *x, uint16_t *y, uint16_t *strength, uint8_t *point_num, uint8_t max_point_num);
+      |      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Compiling .pio/build/esp32s3-touch-amoled-206/app.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/app_settings.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/app_power.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/app_perf.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/app_phone.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/app_timer.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/i18n.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/i18n_es.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/touch.cpp.o
+Compiling .pio/build/esp32s3-touch-amoled-206/ui.cpp.o
+/Users/brunoorlandi/Projects/AIHardware/vendor/hermes-gadget-sdk/firmware/core/src/ui.cpp: In member function 'hg::Ui::Rect hg::Ui::name_rect(const hg::UiModel&) const':
+/Users/brunoorlandi/Projects/AIHardware/vendor/hermes-gadget-sdk/firmware/core/src/ui.cpp:847:32: warning: unused variable 'lh' [-Wunused-variable]
+  847 |   const int s = layout_.scale, lh = Canvas::line_height(s);
+      |                                ^~
+Archiving .pio/build/esp32s3-touch-amoled-206/esp-idf/core/libcore.a
+Indexing .pio/build/esp32s3-touch-amoled-206/esp-idf/core/libcore.a
+Generating project linker script .pio/build/esp32s3-touch-amoled-206/sections.ld
+managed_components/espressif__esp_codec_dev/Kconfig:4: warning: ESP_IDF_VERSION has 'option env="ESP_IDF_VERSION"', but the environment variable ESP_IDF_VERSION is not set
+Skipping linker fragment parsing, fragment files unchanged
+Linking .pio/build/esp32s3-touch-amoled-206/firmware.elf
+Retrieving maximum program size .pio/build/esp32s3-touch-amoled-206/firmware.elf
+Checking size .pio/build/esp32s3-touch-amoled-206/firmware.elf
+Advanced Memory Usage is available via "PlatformIO Home > Project Inspect"
+RAM:   [==        ]  16.6% (used 54288 bytes from 327680 bytes)
+Flash: [========  ]  76.3% (used 1549587 bytes from 2031616 bytes)
+Building .pio/build/esp32s3-touch-amoled-206/firmware.bin
+esptool.py v4.11.0
+Creating esp32s3 image...
+Merged 4 ELF sections
+Successfully created esp32s3 image.
+_check_size([".pio/build/esp32s3-touch-amoled-206/firmware.bin"], [".pio/build/esp32s3-touch-amoled-206/firmware.elf"])
+check_size: app 1514 KB in the 1984 KB 'ota_0' slot, 24% free
+========================= [SUCCESS] Took 16.52 seconds =========================
+
+Environment               Status    Duration
+------------------------  --------  ------------
+esp32s3-touch-amoled-206  SUCCESS   00:00:16.515
+========================= 1 succeeded in 00:00:16.515 =========================
