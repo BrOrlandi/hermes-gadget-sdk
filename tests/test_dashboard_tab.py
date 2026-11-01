@@ -112,7 +112,7 @@ def test_two_stores_in_one_process_can_write_at_once(tmp_path):
     assert not list(tmp_path.glob("*.tmp"))
 
 
-def test_the_wheel_carries_the_dashboard_files():
+def test_the_wheel_carries_the_dashboard_and_desktop_files():
     # hermes-gadget plugin install copies the installed package directory, so a file missing from
     # package-data never reaches Hermes. Every file the tab needs must match one of its globs.
     import fnmatch
@@ -121,7 +121,8 @@ def test_the_wheel_carries_the_dashboard_files():
     text = (REPO / "pyproject.toml").read_text(encoding="utf-8")
     line = re.search(r"^hermes_gadget_plugin = \[(.*)\]$", text, re.M).group(1)
     globs = re.findall(r'"([^"]+)"', line)
-    for path in ("dashboard/manifest.json", "dashboard/plugin_api.py", "dashboard/dist/index.js"):
+    for path in ("dashboard/manifest.json", "dashboard/plugin_api.py", "dashboard/dist/index.js",
+                 "desktop/plugin.js"):
         assert (REPO / "plugin" / path).is_file()
         assert any(fnmatch.fnmatch(path, g) for g in globs), path
 

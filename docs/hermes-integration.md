@@ -15,6 +15,7 @@ Hermes's gateway runs "platform adapters": Telegram, Slack and about twenty othe
 | `tools.py` | `gadget_devices`, `gadget_display`, `gadget_action` |
 | `store.py`, `status.py`, `protocol.py`, `audio.py`, `textfmt.py`, `imaging.py` | Support modules (no Hermes imports) |
 | `dashboard/` | The **Gadgets** tab of the Hermes web dashboard: `manifest.json`, the backend routes in `plugin_api.py`, and the tab's bundle in `dist/`, built from `src/` (see [The Gadgets tab](#the-gadgets-tab-in-the-hermes-dashboard)) |
+| `desktop/plugin.js` | The **Gadgets** page of the Hermes desktop app, which reads the same routes (see [In the Hermes desktop app](#in-the-hermes-desktop-app)) |
 
 Each device is a direct-message chat whose `chat_id` and `user_id` are the device id. Everything Hermes does for a DM on any platform then applies unchanged: sessions and memory, `/new`, `/stop`, `/voice`, model routing, approvals and delivery.
 
@@ -95,7 +96,24 @@ The gateway replaces `status.json` in one step (a temporary file, then a rename)
 
 **The bundle.** `dashboard/dist/index.js` is built output. Its source is `dashboard/src/index.jsx`; `npm run build:dashboard-tab` in `site/` rebuilds it with esbuild (pinned in `site/package.json`) as one IIFE that takes React and the UI components from the dashboard's plugin SDK (`window.__HERMES_PLUGIN_SDK__`) and bundles no library. `npm test` in `site/` fails when the committed bundle differs from a fresh build of the source.
 
-The Hermes desktop app has its own plugin SDK and does not show this tab; only the `/api/plugins/gadget/` routes are shared with it.
+### In the Hermes desktop app
+
+The desktop app does not read the web dashboard's tab. The plugin gives it its own page, `desktop/plugin.js`: a **Gadgets** row in the sidebar, below Artifacts (codicon `watch`), that opens the same read-only list, and an **Open Gadgets** command in the command palette. The page reads the same route, `GET /api/plugins/gadget/devices`, every 10 seconds, and a request with no answer fails after 15 seconds. When one remote Hermes serves several profiles, the app adds `?profile=` to the request itself. The app sends that request with its own credentials for the Hermes it is connected to, local or remote, so the route stays behind the same login. The backend half must be enabled on that Hermes (`plugins.enabled: [gadget]`), as for the web tab.
+
+The file is plain JavaScript with `jsx()` calls and no build step, since the app loads it as it is. It imports only `@hermes/plugin-sdk` and `react/jsx-runtime`. `npm test` in `site/` loads it with stand-ins for those modules and checks the page it renders.
+
+The app loads desktop plugins from `<hermes home>/desktop-plugins/` on the computer it runs on. How the page gets there depends on where Hermes runs:
+
+- **Hermes on the same computer as the app.** The app copies `plugins/gadget/desktop/` from the installed plugin into `desktop-plugins/gadget/` by itself, and copies it again when the plugin is updated. A page that comes in this way is off until you turn it on in **Capabilities → Plugins**.
+- **The app connected to Hermes on another computer.** The app only looks at its own computer's Hermes home, so copy the page there:
+
+  ```bash
+  mkdir -p ~/.hermes/desktop-plugins/gadget
+  curl -fsSL https://raw.githubusercontent.com/Adolanium/hermes-gadget-sdk/main/plugin/desktop/plugin.js \
+    -o ~/.hermes/desktop-plugins/gadget/plugin.js
+  ```
+
+  The app picks the file up within a few seconds (or run **Reload desktop plugins** from ⌘K), and a plugin copied in by hand is on by default. Copy it again after updating the plugin on the Hermes computer. Keep the folder name `gadget`: it is the plugin's id, and the page's requests go to `/api/plugins/<id>/`.
 
 ## Hermes surfaces the SDK uses
 
@@ -124,6 +142,7 @@ The Hermes desktop app has its own plugin SDK and does not show this tab; only t
 | Tool session context | `gateway.session_context.get_session_env` | `HERMES_SESSION_PLATFORM` / `HERMES_SESSION_CHAT_ID` pick the default device |
 | Durable state | `plugins.plugin_storage.plugin_data_dir("gadget")` | Enrolled device keys, pending pairing codes, firmware staged for updates (`updates/`), and the running gateway's live device status (`status.json`) |
 | Web dashboard tab | `dashboard/manifest.json`, `dashboard/plugin_api.py` (a FastAPI `router` under `/api/plugins/gadget/`), `window.__HERMES_PLUGIN_SDK__` | The **Gadgets** tab. Reads the plugin's data files; never calls the gateway. See [The Gadgets tab](#the-gadgets-tab-in-the-hermes-dashboard) |
+| Desktop app page | `desktop/plugin.js` with `@hermes/plugin-sdk`: `ROUTES_AREA`, `SIDEBAR_NAV_AREA`, `PALETTE_AREA`, `ctx.rest`, `useQuery` | The **Gadgets** page and sidebar row of the desktop app, read from `<hermes home>/desktop-plugins/gadget/`. See [In the Hermes desktop app](#in-the-hermes-desktop-app) |
 | Host CLI | `ctx.register_cli_command("gadget", ...)` | `hermes gadget devices / forget / info / pair / update`. `pair` waits for a device to show a code and approves it after asking. `update` stages an image in the plugin's data directory (a file, or with `--latest` the newest release's image for the device's board, checked against the release manifest); the gateway's adapter installs it once the device is online and writes progress back for the command |
 | Send and cron targets | `parse_target_ref_fn`, `cron_deliver_env_var` | `gadget:hg-0123456789abcdef` works with send_message and cron delivery; `GADGET_HOME_CHANNEL` supplies a default cron device |
 
