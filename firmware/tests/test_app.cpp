@@ -6638,7 +6638,9 @@ TEST("recording buffer: a slow link delays frames instead of dropping them, and 
   CHECK(uploaded(r, stream, 0, &in_order) == sp.all);
   CHECK(in_order);
   CHECK(r.fake.last("audio.end") != nullptr);
-  for (const auto& l : r.fake.logs) CHECK(l.find("recording:") == std::string::npos);
+  bool none_lost = false;
+  for (const auto& l : r.fake.logs) none_lost |= l.find(" 0 frames lost") != std::string::npos;
+  CHECK(none_lost);
 }
 
 TEST("recording buffer: a connection lost mid-recording keeps recording, and all of it goes after reconnecting") {
@@ -6846,4 +6848,119 @@ TEST("recording buffer: a board without one ends the recording on a lost connect
   CHECK(!r.app.in_turn());
   CHECK(!r.fake.mic_on);
   CHECK(r.app.screen() == hg::Screen::Connecting);
+}
+
+// --- Diagnostics for lost connections -----------------------------------------
+
+namespace {
+Value diag_of(Rig& r) {
+  Value v;
+  const std::string out = r.app.console("diag");
+  CHECK(out.rfind("@diag {", 0) == 0);
+  CHECK(hg::json::parse(out.substr(6), v));
+  return v;
+}
+bool logged(const Rig& r, const std::string& text) {
+  for (const auto& l : r.fake.logs)
+    if (l.find(text) != std::string::npos) return true;
+  return false;
+}
+}  // namespace
+
+TEST("diag: every lost connection is logged and kept with what the device was doing") {
+  Rig r(buffered_profile());
+  r.bring_online(true);
+  Speech sp;
+  r.app.on_button(hg::Button::Talk, true);
+  sp.talk(r, 5);
+  r.app.on_transport_closed("disconnected: a 1286 B send in flight for 10000 ms; transport errno 11; rssi -74");
+  CHECK(logged(r, "connection closed: disconnected: a 1286 B send in flight for 10000 ms; transport errno 11; rssi -74 (recording)"));
+  CHECK(logged(r, "connection lost during a recording; still recording, 500 ms held"));
+  r.app.on_button(hg::Button::Talk, false);
+  // A reconnect that times out counts too, and says the recording is waiting.
+  r.advance(12000);
+  CHECK(logged(r, "connection closed: connect timeout (sending a recording)"));
+  r.app.on_network(false, "Wi-Fi lost (reason 200 beacon timeout, rssi -80)");
+  CHECK(logged(r, "network down: Wi-Fi lost (reason 200 beacon timeout, rssi -80) (sending a recording)"));
+
+  Value v = diag_of(r);
+  CHECK(v["connection"]["closes_total"].as_int() >= 3);
+  const auto& closes = v["connection"]["closes"].elements();
+  CHECK(!closes.empty());
+  if (closes.empty()) return;
+  CHECK_EQ(closes.front()["during"].as_string(), std::string("recording"));
+  CHECK(closes.front()["reason"].as_string().find("rssi -74") != std::string::npos);
+  CHECK_EQ(closes.back()["during"].as_string(), std::string("sending a recording"));
+  CHECK_EQ(v["recordings"]["held"].as_int(), int64_t(1));
+  CHECK(v["recordings"]["buffer"].as_int() > 0);
+}
+
+TEST("diag: the close history keeps the last five") {
+  Rig r;
+  r.bring_online(true);
+  for (int i = 0; i < 7; ++i) {
+    r.app.on_transport_closed("gone " + std::to_string(i));
+    reconnect(r);
+  }
+  Value v = diag_of(r);
+  CHECK_EQ(v["connection"]["closes_total"].as_int(), int64_t(7));
+  const auto& closes = v["connection"]["closes"].elements();
+  CHECK_EQ(closes.size(), size_t(5));
+  if (closes.size() != 5) return;
+  CHECK_EQ(closes.front()["reason"].as_string(), std::string("gone 2"));
+  CHECK_EQ(closes.back()["reason"].as_string(), std::string("gone 6"));
+  CHECK_EQ(closes.back()["during"].as_string(), std::string("idle"));
+  CHECK_EQ(v["recordings"]["buffer"].as_int(), int64_t(0));  // a board without the buffer
+}
+
+TEST("diag: each recording logs its length, frames lost and the link's backlog, and diag keeps the last") {
+  Rig r(buffered_profile());
+  r.bring_online(true);
+  Speech sp;
+  r.app.on_button(hg::Button::Talk, true);
+  sp.talk(r, 2);
+  r.fake.refuse_binary = true;  // the link stalls for 300 ms of audio
+  sp.say(r, 1600);
+  sp.say(r, 1600);
+  sp.say(r, 1600);
+  r.fake.refuse_binary = false;
+  sp.talk(r, 2);
+  r.fake.logs.clear();
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK(logged(r, " frames lost (past the buffer), link backlog peaked at "));
+  Value v = diag_of(r);
+  const Value& last = v["recordings"]["last"];
+  CHECK_EQ(last["frames_lost"].as_int(), int64_t(0));
+  CHECK(last["backlog_peak_ms"].as_int() >= 300);
+  CHECK_EQ(last["resends"].as_int(), int64_t(0));
+  CHECK(last["ms"].as_int() >= 400);
+
+  // Sent again after a loss: the log and diag say so.
+  r.server(R"({"type":"turn.end","turn":"t","outcome":"success"})");
+  r.advance(7000);
+  r.app.on_button(hg::Button::Talk, true);
+  sp.talk(r, 5);  // past the 350 ms a recording needs
+  r.app.on_transport_closed("disconnected");
+  r.app.on_button(hg::Button::Talk, false);
+  r.fake.logs.clear();
+  reconnect(r);
+  r.advance(50);
+  CHECK(logged(r, "sent again 1x after a lost connection"));
+  v = diag_of(r);
+  CHECK_EQ(v["recordings"]["resent"].as_int(), int64_t(1));
+  CHECK_EQ(v["recordings"]["last"]["resends"].as_int(), int64_t(1));
+}
+
+TEST("diag: a recording dropped for want of a connection is counted") {
+  Rig r(buffered_profile());
+  r.bring_online(true);
+  Speech sp;
+  r.app.on_button(hg::Button::Talk, true);
+  sp.talk(r, 5);  // past the 350 ms a recording needs
+  r.app.on_transport_closed("disconnected");
+  r.app.on_button(hg::Button::Talk, false);
+  r.advance(hg::App::kRecordingWaitMs + 500);
+  Value v = diag_of(r);
+  CHECK_EQ(v["recordings"]["dropped"].as_int(), int64_t(1));
+  CHECK(logged(r, "dropped a held recording: no connection within 45 s"));
 }

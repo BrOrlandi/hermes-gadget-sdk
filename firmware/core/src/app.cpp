@@ -394,6 +394,8 @@ std::string App::next_id(char prefix) {
 // Connection lifecycle
 
 void App::on_network(bool up, std::string_view detail) {
+  if (!up && network_up_)
+    log(LogLevel::Warn, "network down: " + std::string(detail.empty() ? "no detail" : detail) + " (" + activity() + ")");
   network_up_ = up;
   network_detail_ = std::string(detail);
   if (!up) {
@@ -468,8 +470,22 @@ void App::schedule_reconnect() {
   reconnect_pending_ = network_up_;
 }
 
+// What the device was doing, for the log and `diag` when a connection ends.
+const char* App::activity() const {
+  if (mode_ == Mode::Listening) return "recording";
+  if (rec_on_) return "sending a recording";
+  if (mode_ == Mode::Thinking) return "waiting for a reply";
+  if (mode_ == Mode::Responding) return "replying";
+  return "idle";
+}
+
 void App::drop_session(std::string_view reason) {
   last_close_ = std::string(reason);
+  // Every end of a session, whoever noticed it: the transport, a timeout or the network.
+  ++closes_total_;
+  if (closes_.size() >= kCloseHistory) closes_.erase(closes_.begin());
+  closes_.push_back({now(), last_close_, activity()});
+  log(LogLevel::Warn, "connection closed: " + last_close_ + " (" + activity() + ")");
   if (ota_busy()) {
     if (ota_ == Ota::Receiving) hal_.updater->abort();
     ota_reset();
@@ -479,6 +495,7 @@ void App::drop_session(std::string_view reason) {
   // and all of it goes again once the device is back online (resend_recording).
   const bool keep = rec_on_ && (mode_ == Mode::Listening || mode_ == Mode::Thinking);
   if (keep) {
+    if (rec_live_) ++rec_stats_.held;  // once per loss, not per failed reconnect
     rec_live_ = false;
     rec_.rewind();
     // The wait starts once, when a finished recording is first held; a reconnect that fails
@@ -488,7 +505,8 @@ void App::drop_session(std::string_view reason) {
       rec_wait_until_ = now() + kRecordingWaitMs;
     }
     log(LogLevel::Warn, std::string("connection lost during a recording; ") +
-                            (rec_done_ ? "it waits to be sent again" : "still recording"));
+                            (rec_done_ ? "it waits to be sent again" : "still recording") + ", " +
+                            std::to_string(rec_.size() / 2 * 1000 / profile_.mic_rate) + " ms held");
   } else {
     if (rec_on_) discard_recording();
     if (mode_ == Mode::Listening && hal_.mic) hal_.mic->stop();
@@ -523,7 +541,6 @@ void App::on_transport_open() {
 void App::on_transport_closed(std::string_view reason) {
   // Closes we initiated (timeouts, reconfiguration) were already handled.
   if (!transport_active_) return;
-  log(LogLevel::Warn, std::string("connection closed: ") + std::string(reason));
   drop_session(reason);
   update_model();
 }
@@ -1426,6 +1443,7 @@ void App::start_listening(bool hands_free) {
   rec_.clear();
   rec_done_ = rec_deadline_ = false;
   rec_resends_ = 0;
+  rec_backlog_ms_ = 0;
   rec_started_at_ = now();
   // Buffered, a start that didn't go leaves the recording held: tick() sends it all on a new stream.
   rec_live_ = send_audio_start();
@@ -1474,6 +1492,10 @@ void App::finish_listening() {
   if (mic_unsent_)
     log(LogLevel::Warn, "recording: " + std::to_string(mic_unsent_) + " of " + std::to_string(mic_seq_) +
                             " audio frames not sent, the link couldn't keep up");
+  rec_stats_.any = true;
+  rec_stats_.last_ms = now() - mode_since_;
+  rec_stats_.last_unsent = mic_unsent_;
+  rec_stats_.last_backlog_ms = rec_stats_.last_resends = 0;
   if (!send(end)) {
     // Hermes would wait for the rest of the recording and never answer.
     mode_ = Mode::Idle;
@@ -1531,9 +1553,17 @@ void App::pump_recording() {
   json::Value end = proto::message("audio.end");
   end.set("id", request_id_).set("stream", mic_stream_).set("duration_ms", rec_duration_ms_);
   if (!send(end)) return;  // tried again next tick; a lost connection holds the recording
-  if (mic_unsent_)
-    log(LogLevel::Warn, "recording: " + std::to_string(mic_unsent_) + " audio frames didn't fit the buffer");
-  if (rec_resends_) log(LogLevel::Info, "recording sent again after a lost connection");
+  rec_stats_.any = true;
+  rec_stats_.last_ms = rec_duration_ms_;
+  rec_stats_.last_unsent = mic_unsent_;
+  rec_stats_.last_backlog_ms = rec_backlog_ms_;
+  rec_stats_.last_resends = rec_resends_;
+  if (rec_resends_) ++rec_stats_.resent;
+  // One line per recording: enough to tell a slow link (backlog) from a lost one (sent again).
+  log(mic_unsent_ ? LogLevel::Warn : LogLevel::Info,
+      "recording: " + std::to_string(rec_duration_ms_) + " ms, " + std::to_string(mic_unsent_) +
+          " frames lost (past the buffer), link backlog peaked at " + std::to_string(rec_backlog_ms_) + " ms" +
+          (rec_resends_ ? ", sent again " + std::to_string(rec_resends_) + "x after a lost connection" : ""));
   rec_on_ = false;
   rec_.clear();
   last_turn_rx_ = now();  // Hermes's time to answer starts now
@@ -1608,6 +1638,9 @@ void App::on_mic_samples(const int16_t* samples, size_t count) {
     const size_t dropped = count - rec_.append(samples, count);
     if (dropped) mic_unsent_ += static_cast<uint32_t>((dropped + mic_frame_samples() - 1) / mic_frame_samples());
     pump_recording();
+    // How far the link fell behind (on a live connection: a held recording waits by design).
+    if (rec_live_)
+      rec_backlog_ms_ = std::max(rec_backlog_ms_, static_cast<uint32_t>(rec_.unsent() / 2 * 1000 / profile_.mic_rate));
   }
   size_t off = rec_on_ ? count : 0;
   const size_t frame = mic_frame_samples();
@@ -2017,6 +2050,7 @@ void App::tick() {
     } else if (phase_ == Phase::Online && !paired_) {
       // No longer paired: Hermes won't take it.
       log(LogLevel::Warn, "dropped a held recording: the device isn't paired");
+      ++rec_stats_.dropped;
       if (mode_ == Mode::Listening && hal_.mic) hal_.mic->stop();
       discard_recording();
       mode_ = Mode::Idle;
@@ -2025,6 +2059,7 @@ void App::tick() {
     if (recording_held() && rec_done_ && static_cast<int32_t>(t - rec_wait_until_) >= 0) {
       log(LogLevel::Warn, "dropped a held recording: no connection within " +
                               std::to_string(kRecordingWaitMs / 1000) + " s");
+      ++rec_stats_.dropped;
       discard_recording();
       mode_ = Mode::Idle;
       mode_since_ = t;
@@ -2515,7 +2550,29 @@ std::string App::diag_report() {
   if (tailnet_wanted()) conn.set("tailnet", tunnel_up_ ? std::string("up") : tunnel_detail_.empty() ? std::string("joining") : tunnel_detail_);
   if (!last_close_.empty()) conn.set("last_close", last_close_);
   if (online_since_) conn.set("online_s", (now() - online_since_) / 1000);
+  conn.set("closes_total", closes_total_);
+  json::Value closes = json::Value::array();
+  for (const auto& c : closes_) {
+    json::Value e = json::Value::object();
+    e.set("ago_s", (now() - c.at) / 1000).set("reason", c.reason).set("during", c.during);
+    closes.push(e);
+  }
+  conn.set("closes", closes);  // oldest first
   r.set("connection", conn);
+  json::Value rec = json::Value::object();
+  rec.set("buffer", rec_.ready() ? static_cast<int64_t>(rec_.capacity()) : int64_t(0))
+      .set("held", rec_stats_.held)
+      .set("resent", rec_stats_.resent)
+      .set("dropped", rec_stats_.dropped);
+  if (rec_stats_.any) {
+    json::Value last = json::Value::object();
+    last.set("ms", rec_stats_.last_ms)
+        .set("frames_lost", rec_stats_.last_unsent)
+        .set("backlog_peak_ms", rec_stats_.last_backlog_ms)
+        .set("resends", rec_stats_.last_resends);
+    rec.set("last", last);
+  }
+  r.set("recordings", rec);
   r.set("app", status_value());
   if (frame_stats_) r.set("frames", frame_stats_->to_json());
   if (on_diag) on_diag(r);

@@ -554,6 +554,25 @@ class App {
   int attempts_ = 0;
   std::string fatal_;   // unrecoverable until reconfigured
   std::string last_close_;
+  // What `diag` says about lost connections and recordings: the last few closes, with what
+  // the device was doing, and how the last recording's upload went.
+  struct Close {
+    uint32_t at = 0;
+    std::string reason;
+    const char* during = "";
+  };
+  std::vector<Close> closes_;  // newest last, at most kCloseHistory
+  static constexpr size_t kCloseHistory = 5;
+  uint32_t closes_total_ = 0;
+  struct RecordingStats {
+    uint32_t held = 0, resent = 0, dropped = 0;  // recordings since start-up
+    // The last recording handed to Hermes: its length, frames lost (refused, or past the
+    // buffer), the most audio waiting for the link at once, and how often it went again.
+    uint32_t last_ms = 0, last_unsent = 0, last_backlog_ms = 0, last_resends = 0;
+    bool any = false;
+  } rec_stats_;
+  uint32_t rec_backlog_ms_ = 0;  // this recording's peak backlog
+  const char* activity() const;
   // tailnet (DeviceProfile::tailnet): the settings, and the port's tunnel as last reported
   bool tailnet_on_ = false;
   std::string tailnet_key_;
