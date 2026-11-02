@@ -6964,3 +6964,21 @@ TEST("diag: a recording dropped for want of a connection is counted") {
   CHECK_EQ(v["recordings"]["dropped"].as_int(), int64_t(1));
   CHECK(logged(r, "dropped a held recording: no connection within 45 s"));
 }
+
+TEST("recording buffer: a turn that ends some other way takes its unsent recording with it") {
+  Rig r(buffered_profile());
+  r.bring_online(true);
+  Speech sp;
+  r.app.on_button(hg::Button::Talk, true);
+  sp.talk(r, 5);
+  r.fake.refuse_binary = true;  // the link never takes the rest
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK(r.app.in_turn());
+  r.advance(181000);  // past the 180 s Thinking gives Hermes
+  CHECK(!r.app.in_turn());
+  r.fake.refuse_binary = false;
+  const size_t before = r.fake.sent_binary.size();
+  r.advance(1000);
+  CHECK_EQ(r.fake.sent_binary.size(), before);  // nothing more goes
+  CHECK(r.fake.last("audio.end") == nullptr);
+}

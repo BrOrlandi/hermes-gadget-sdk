@@ -2041,6 +2041,8 @@ void App::tick() {
     update_model();
   }
 
+  // Whatever ended the turn some other way (a timeout, a new screen) ends the recording too.
+  if (rec_on_ && mode_ != Mode::Listening && mode_ != Mode::Thinking) discard_recording();
   if (rec_on_) {
     if (rec_live_) {
       pump_recording();  // what the link refused before
