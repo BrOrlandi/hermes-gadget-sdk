@@ -81,6 +81,21 @@ bool EspSystem::enable_doze() {
 #endif
 }
 
+void EspSystem::set_turn(bool in_turn) {
+#if CONFIG_PM_ENABLE
+  if (in_turn == turn_held_) return;
+  if (!turn_ && esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "hg-turn", &turn_) != ESP_OK) {
+    turn_ = nullptr;
+    return;
+  }
+  if (in_turn) esp_pm_lock_acquire(turn_);
+  else esp_pm_lock_release(turn_);
+  turn_held_ = in_turn;
+#else
+  (void)in_turn;
+#endif
+}
+
 bool EspSystem::dozing_now() { return g_dozing.load(std::memory_order_relaxed); }
 
 void EspSystem::set_dozing(bool dozing) {

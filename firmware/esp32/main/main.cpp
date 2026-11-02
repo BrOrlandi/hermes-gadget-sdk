@@ -591,6 +591,8 @@ extern "C" void app_main(void) {
     }
     // A loss whose WsClosed event was dropped; harmless if it was delivered too.
     if (g_transport.take_lost()) app.on_transport_closed("disconnected");
+    g_system.set_turn(app.in_turn());  // full CPU speed while recording, waiting or replying
+    g_transport.set_metering(app.in_turn());
     // Waiting would leave the device answering nothing until someone resets it.
     if (g_transport.stuck()) {
       ESP_LOGE(TAG, "the WebSocket send task is stuck; restarting");

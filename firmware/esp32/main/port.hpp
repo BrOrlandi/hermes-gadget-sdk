@@ -150,9 +150,15 @@ class EspSystem final : public hg::System {
   static bool dozing_now();  // for tasks that poll: poll less while dozing
   std::function<void()> on_doze_start;  // e.g. power the speaker down
   std::function<void()> on_doze_end;    // e.g. power it up, retry Wi-Fi now: the user is back
+  // A turn (recording, waiting, a reply): the CPU stays at full speed. With power management
+  // it otherwise drops to 80 MHz between bursts, and the microphone's upload (TLS, WebSocket,
+  // lwIP) and the screen then share the slow clock. Called every loop; cheap when unchanged.
+  void set_turn(bool in_turn);
 
  private:
   esp_pm_lock_handle_t awake_ = nullptr;  // held whenever not dozing
+  esp_pm_lock_handle_t turn_ = nullptr;   // ESP_PM_CPU_FREQ_MAX, held during a turn
+  bool turn_held_ = false;
   bool dozing_ = false;
   int64_t doze_started_us_ = 0;
 };
@@ -182,6 +188,9 @@ class WsTransport final : public hg::Transport {
   // True when the send task has been stuck on one item for hg::ws::kStuckMs, or
   // couldn't take a client to close: the transport can't recover without a restart.
   bool stuck() const;
+  // While on (a turn), the send task logs once a second what it sent: bytes, messages, the
+  // longest send, the queue's peak, refusals, the CPU clock and the signal ("uplink: ...").
+  void set_metering(bool on) { metering_ = on; }
 
  private:
   static void on_event(void* arg, const char* base, int32_t id, void* data);
@@ -200,6 +209,8 @@ class WsTransport final : public hg::Transport {
   // message's first frame clears it.
   std::string rx_;
   uint8_t rx_opcode_ = 0;
+  std::atomic<bool> metering_{false};
+  std::atomic<uint32_t> refused_{0};  // messages enqueue() turned away for want of room
 };
 
 // ESP-IDF RGB timing bus with ST7701 command initialization on 3-wire SPI.
