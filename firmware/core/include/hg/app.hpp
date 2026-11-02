@@ -20,6 +20,7 @@
 #include "hg/hal.hpp"
 #include "hg/i18n.hpp"
 #include "hg/json.hpp"
+#include "hg/recording.hpp"
 #include "hg/tones.hpp"
 #include "hg/ui.hpp"
 #include "hg/vad.hpp"
@@ -78,6 +79,12 @@ struct DeviceProfile {
   // Faces in colour too: begin() takes px*px*2 bytes for one (72 KB at 192 px) from this, and free()
   // releases them. Without it, or when it returns null, the board offers one-colour faces.
   void* (*colour_face_alloc)(size_t) = nullptr;
+  // Keeps each recording whole while it uploads: begin() takes RecordingBuffer::bytes_for(the
+  // utterance limit, mic_rate) bytes (1 MB for 30 s at 16 kHz, 1.5 MB at 24 kHz) from this, released with
+  // std::free. A connection lost mid-recording then loses nothing: recording goes on, and the
+  // whole of it is sent again once the device is back online. Without it, or when it returns
+  // null, audio streams straight to the link and a lost connection ends the recording.
+  void* (*recording_alloc)(size_t) = nullptr;
 };
 
 // A device-side capability the agent may invoke. `params` is a JSON-schema
@@ -179,6 +186,11 @@ class App {
   void on_power_key();
   // Dozing (System::set_dozing): the port's loop may wait this long for events.
   static constexpr uint32_t kDozeWaitMs = 100;
+  // The longest recording; the recording buffer holds this much (RecordingBuffer::bytes_for).
+  static constexpr uint32_t kMaxUtteranceMs = 30000;
+  // A recording that ended with the connection lost waits this long for it to come back
+  // (about three connection attempts), then is dropped.
+  static constexpr uint32_t kRecordingWaitMs = 45000;
   bool dozing() const { return dozing_; }
   bool start_wifi_setup();
   void close_wifi_setup();
@@ -341,6 +353,12 @@ class App {
   void start_listening(bool hands_free);
   void finish_listening();
   void cancel_listening(std::string_view why);
+  // The recording buffer (profile_.recording_alloc): see rec_ below.
+  bool send_audio_start();
+  void pump_recording();
+  void resend_recording();
+  void discard_recording();
+  bool recording_held() const { return rec_on_ && !rec_live_; }
   void stop_playback();
   void cancel_turn();
   bool known_setting(std::string_view key) const;
@@ -556,7 +574,16 @@ class App {
   uint32_t mode_since_ = 0;
   bool hands_free_ = false;
   uint8_t mic_stream_ = 0;
-  uint32_t mic_unsent_ = 0;  // frames of this recording the transport refused
+  uint32_t mic_unsent_ = 0;  // frames of this recording the transport refused (or, buffered, that didn't fit)
+  // This recording goes through rec_. rec_live_: the current connection carries its upload
+  // (audio.start went on it). rec_done_: the microphone stopped, and audio.end goes once all of
+  // it is sent. Held (on, not live): the connection was lost; recording goes on, and once the
+  // device is online again the whole of it goes on a new stream. Finished and still held at
+  // rec_wait_until_, it is dropped. Off again once audio.end is sent, or on cancel.
+  RecordingBuffer rec_;
+  bool rec_on_ = false, rec_live_ = false, rec_done_ = false, rec_deadline_ = false;
+  uint32_t rec_duration_ms_ = 0, rec_wait_until_ = 0, rec_started_at_ = 0;
+  uint16_t rec_resends_ = 0;
   std::vector<int16_t> mic_pending_;  // the frame being built (mic_frame_samples())
   size_t mic_frame_samples() const;
   void send_mic_frame();
