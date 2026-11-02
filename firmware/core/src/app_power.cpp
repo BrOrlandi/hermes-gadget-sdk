@@ -96,6 +96,12 @@ void App::on_power_key() {
     wake_display();
     return;
   }
+  if (profile_picker_open()) {  // PWR is Back on the profile grid: Ready, still lit; the next press darkens
+    dismiss_overlay();
+    activity_at_ = now();
+    update_model();
+    return;
+  }
   // Off means off: the menu, a list or a card the user was on closes, so the
   // next press wakes to the home screen and nothing open turns the screen back on.
   if (settings_open()) close_settings();
@@ -327,6 +333,10 @@ void App::power_tick() {
       const uint32_t elapsed = now() - activity_at_;
       if (elapsed >= screen_timeout_ms_ && !display_sleeping_) {
         display_sleeping_ = true;
+        if (profile_picker_open()) {  // a grid left alone closes as the screen goes dark: it wakes to Ready
+          dismiss_overlay();
+          update_model();
+        }
         apply_backlight();
         // A list left open closes in the dark: the wake shows the home screen.
         if (menu_open()) {
