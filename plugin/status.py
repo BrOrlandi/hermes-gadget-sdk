@@ -54,8 +54,9 @@ def battery(sensors: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def write(directory: Path | str, devices: dict[str, dict[str, Any]], *, running: bool = True,
-          now: float | None = None) -> None:
-    """Replace the status file with ``devices`` (device id -> its live state)."""
+          now: float | None = None, reached: list[dict[str, Any]] | None = None) -> None:
+    """Replace the status file with ``devices`` (device id -> its live state) and ``reached``, the
+    URLs paired devices connected through (``{"url", "at"}``, newest first; ``public_url``)."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     data = {
@@ -65,6 +66,7 @@ def write(directory: Path | str, devices: dict[str, dict[str, Any]], *, running:
         "updated_at": time.time() if now is None else now,
         "refresh_s": REFRESH_S,
         "devices": devices,
+        "reached": list(reached or []),
     }
     path = directory / FILENAME
     fd, tmp = tempfile.mkstemp(dir=directory, prefix=f"{path.stem}.", suffix=".tmp")  # unique, mode 600
@@ -86,12 +88,12 @@ def read(directory: Path | str, *, now: float | None = None) -> dict[str, Any]:
     except (OSError, ValueError):
         raw = None
     if not isinstance(raw, dict):
-        return {"running": False, "updated_at": None, "devices": {}}
+        return {"running": False, "updated_at": None, "devices": {}, "reached": []}
     updated_at = raw.get("updated_at")
     try:  # float() of a huge integer raises OverflowError: a file like that is malformed
         updated_at = float(updated_at) if isinstance(updated_at, (int, float)) else None
     except OverflowError:
-        return {"running": False, "updated_at": None, "devices": {}}
+        return {"running": False, "updated_at": None, "devices": {}, "reached": []}
     # Fresh means written in the last STALE_AFTER_S. A time in the future (a clock set back, a
     # hand-edited file) or Infinity would otherwise read as fresh for ever; a few seconds of
     # skew between the gateway's and the dashboard's clocks are allowed.
@@ -101,5 +103,9 @@ def read(directory: Path | str, *, now: float | None = None) -> dict[str, Any]:
     fresh = age is not None and -FUTURE_SKEW_S <= age <= STALE_AFTER_S
     running = bool(raw.get("running")) and fresh
     devices = raw.get("devices") if running and isinstance(raw.get("devices"), dict) else {}
+    # Where paired devices reached the gateway stays a useful hint while it restarts: kept even when
+    # the file is stale, as plain {"url", "at"} records (public_url.valid() checks the URL itself).
+    reached = raw.get("reached") if isinstance(raw.get("reached"), list) else []
     return {"running": running, "updated_at": updated_at,
-            "devices": {k: v for k, v in devices.items() if isinstance(v, dict)}}
+            "devices": {k: v for k, v in devices.items() if isinstance(v, dict)},
+            "reached": [r for r in reached[:16] if isinstance(r, dict)]}

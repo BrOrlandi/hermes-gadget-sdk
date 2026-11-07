@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Hermes plugin
+
+- The Hermes Desktop **Gadgets** page's gadget connects when Hermes runs on another computer. Before, the page always connected to the gateway's bind address, `ws://127.0.0.1:8765/gadget` for the default `0.0.0.0`. With Desktop on a laptop and Hermes on a server, that address is the laptop itself, and the page said "Can't reach the Gadget platform on this Hermes". Now `/info` says the URL and how it chose it (`url_source`). Desktop on the gateway's computer still gets the local address. Next comes `platforms.gadget.extra.public_url` when set. Then comes the address a paired device last reached the gateway on, from its upgrade request's `Host` or reverse-proxy headers, which the gateway records in `status.json`. Last comes the dashboard's host name with the gateway's port. The page shows the URL it uses, and **Change** sets another one, kept in the page's storage. The recorded address comes from client headers: it is only a hint for the owner's page and grants nothing, since a new device still needs its pairing code approved. [Which URL the page's gadget uses](docs/hermes-integration.md#which-url-the-pages-gadget-uses). Contributed by @BrOrlandi.
+
 ## 0.5.0
 
 Hermes Gadget 0.5.0 adds a **Gadgets** page to the Hermes desktop app: a gadget that runs in the window, pairing with one click, a live copy of each device's screen, and buttons to send a card or run a device action. Profile faces come in colour on boards with PSRAM, and they blink and talk. The screen shows Russian, and Chinese as a build option. On boards with PSRAM a recording survives a lost connection, and larger network buffers keep the microphone up on slow links such as a phone hotspot. Eight experimental board profiles arrive: the M5Stack StickS3, the Waveshare ESP32-P4-WIFI6-Touch-LCD-7B with camera capture, the Waveshare ESP32-S3-Touch-AMOLED-1.32 and 1.43C, the Waveshare ESP32-S3-Touch-LCD-1.83 and 1.46, the original Espressif ESP32-S3-BOX and the ESP32-S3-Korvo-2. Details by area follow.

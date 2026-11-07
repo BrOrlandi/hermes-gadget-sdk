@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Codicon } from '@hermes/plugin-sdk'
 import { chime, createPlayer, startMic } from '../audio.js'
 import { createDevice, newKey } from '../device.js'
+import { checkUrl, gatewayUrl } from '../gateway-url.js'
 import { Screen } from './screen.jsx'
 import { CSS } from './styles.js'
 
@@ -62,13 +63,17 @@ function VirtualGadget({ rest, storage, info, onDevice }) {
   const [draft, setDraft] = useState('')
   const [token, setToken] = useState(() => storage.get('token', '') || '')
   const [tokenDraft, setTokenDraft] = useState('')
+  // A gateway URL typed here, for when the one /info chose doesn't reach the gateway from this computer.
+  const [customUrl, setCustomUrl] = useState(() => storage.get('url', '') || '')
+  const [urlDraft, setUrlDraft] = useState(null) // null: not editing
+  const target = gatewayUrl(info, customUrl)
   const now = useNow(250)
   const dev = useRef(null)
   const mic = useRef(null)
   const player = useRef(null)
 
   useEffect(() => {
-    if (!info?.url || !info.enabled) return undefined
+    if (!target.url || !info?.enabled) return undefined
     let key = storage.get('deviceKey', null)
     if (!key) {
       key = newKey()
@@ -76,7 +81,7 @@ function VirtualGadget({ rest, storage, info, onDevice }) {
     }
     player.current = createPlayer({ onIdle: () => dev.current?.audioDone() })
     const d = createDevice({
-      url: info.url,
+      url: target.url,
       key,
       name: VIRTUAL_NAME,
       token: token || undefined,
@@ -97,7 +102,7 @@ function VirtualGadget({ rest, storage, info, onDevice }) {
       player.current?.dispose()
       dev.current = null
     }
-  }, [info?.url, info?.enabled, token, storage, onDevice])
+  }, [target.url, info?.enabled, token, storage, onDevice])
 
   // The timer action's alarm: chime once when it reaches zero.
   const rung = useRef(null)
@@ -262,6 +267,57 @@ function VirtualGadget({ rest, storage, info, onDevice }) {
           </button>
         </form>
       ) : null}
+      {urlDraft === null ? (
+        <div className="hg-urlline">
+          <span className={`hg-dot ${v.conn === 'online' ? 'hg-tone-ok' : 'hg-tone-warn'}`} />
+          <code title={target.url ?? ''}>{target.url}</code>
+          <span>· {target.label}</span>
+          <button type="button" className="hg-linkbtn" onClick={() => setUrlDraft(customUrl || target.url || '')}>
+            Change
+          </button>
+        </div>
+      ) : (
+        <form
+          className="hg-type"
+          onSubmit={e => {
+            e.preventDefault()
+            const url = checkUrl(urlDraft)
+            if (!url) return
+            storage.set('url', url)
+            setCustomUrl(url)
+            setUrlDraft(null)
+          }}
+        >
+          <input
+            className="hg-input"
+            value={urlDraft}
+            onChange={e => setUrlDraft(e.target.value)}
+            placeholder="wss://gadget.example.com/gadget"
+            aria-label="Gateway URL"
+            autoFocus
+          />
+          <button type="submit" className="hg-btn hg-btn--primary" disabled={!checkUrl(urlDraft)}>
+            Connect
+          </button>
+          {customUrl ? (
+            <button
+              type="button"
+              className="hg-btn"
+              title={`Use the URL Hermes suggests (${info.url})`}
+              onClick={() => {
+                storage.set('url', '')
+                setCustomUrl('')
+                setUrlDraft(null)
+              }}
+            >
+              Automatic
+            </button>
+          ) : null}
+          <button type="button" className="hg-btn" onClick={() => setUrlDraft(null)}>
+            Cancel
+          </button>
+        </form>
+      )}
       <div className="hg-hintline">
         The same device protocol as a real gadget, running in this window. Hold the button or Space to talk; replies are spoken if Hermes has text-to-speech set up.
         {v.paired ? (

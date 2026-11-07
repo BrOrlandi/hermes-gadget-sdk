@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 PLUGIN_DIR = Path(__file__).resolve().parent.parent
 _PACKAGE = "hermes_gadget_dashboard_plugin"
@@ -48,6 +48,7 @@ def _plugin_package():
 
 
 _plugin_package()
+from hermes_gadget_dashboard_plugin import public_url  # noqa: E402
 from hermes_gadget_dashboard_plugin import status as live_status  # noqa: E402
 from hermes_gadget_dashboard_plugin.desk import Desk  # noqa: E402
 from hermes_gadget_dashboard_plugin.store import DeviceStore  # noqa: E402
@@ -178,8 +179,17 @@ def action(device_id: str, name: str, args: str = "{}") -> dict[str, Any]:
 
 
 @router.get("/info")
-def info() -> dict[str, Any]:
-    """Where devices connect, for the Desktop page's virtual gadget on this computer."""
+def info(request: Request) -> dict[str, Any]:
+    """Where the Desktop page's virtual gadget connects, and how that was decided (``url_source``):
+
+    - ``local``: Desktop runs on the gateway's computer (the request came from loopback): the
+      address the gateway listens on;
+    - ``config``: ``platforms.gadget.extra.public_url``, set by the owner;
+    - ``seen``: the address a paired device last reached the gateway on (``status.json``'s
+      ``reached``, from that device's ``Host`` or proxy headers);
+    - ``dashboard``: this request's host name with the gateway's port and path.
+
+    The page lets its user type another URL; that one wins over all of these."""
     try:
         from hermes_cli.config import load_config
 
@@ -192,17 +202,47 @@ def info() -> dict[str, Any]:
     except (TypeError, ValueError):
         port = 8765
     path = "/" + str(extra.get("path") or "/gadget").strip("/")
-    scheme = "wss" if extra.get("tls_cert") else "ws"
-    # The gateway listens on its configured host; a wildcard bind (the default) includes loopback.
-    host = str(extra.get("host") or "").strip()
-    if host in ("", "0.0.0.0", "::", "[::]", "*", "localhost"):
-        host = "127.0.0.1"
-    elif ":" in host and not host.startswith("["):
-        host = f"[{host}]"  # an IPv6 address in a URL
     live = live_status.read(_data_dir())
+    url, source = _gateway_url(request, extra, port, path, live)
     return {"ok": True, "enabled": bool(cfg.get("enabled")), "running": live["running"],
-            "url": f"{scheme}://{host}:{port}{path}", "port": port, "path": path,
+            "url": url, "url_source": source, "port": port, "path": path,
             "token_required": _token_required(extra)}
+
+
+_FORWARDED = ("forwarded", "x-forwarded-for", "x-forwarded-host", "x-real-ip")
+
+
+def _from_loopback(request: Request) -> bool:
+    """Whether the request came from this computer, and not through a proxy running on it."""
+    client = request.client.host if request.client else ""
+    return public_url.is_loopback(client or "") and not any(h in request.headers for h in _FORWARDED)
+
+
+def _gateway_url(request: Request, extra: dict[str, Any], port: int, path: str,
+                 live: dict[str, Any]) -> tuple[str, str]:
+    scheme = "wss" if extra.get("tls_cert") else "ws"
+    if _from_loopback(request):
+        # The gateway listens on its configured host; a wildcard bind (the default) includes loopback.
+        host = str(extra.get("host") or "").strip()
+        if host in ("", "0.0.0.0", "::", "[::]", "*", "localhost"):
+            host = "127.0.0.1"
+        elif ":" in host and not host.startswith("["):
+            host = f"[{host}]"  # an IPv6 address in a URL
+        return f"{scheme}://{host}:{port}{path}", "local"
+    configured = public_url.valid(extra.get("public_url"))
+    if configured:
+        return configured, "config"
+    seen = public_url.latest(live.get("reached") or [])
+    if seen:
+        return seen, "seen"
+    # The dashboard's own host name, which this computer reached, with the gateway's port.
+    found = public_url.origin(request.headers, tls=request.url.scheme == "https")
+    if found is not None:
+        dash_scheme, host, _ = found
+        url = public_url.build("wss" if scheme == "wss" else dash_scheme, host, port, path)
+        if url:
+            return url, "dashboard"
+    return f"{scheme}://127.0.0.1:{port}{path}", "local"
 
 
 def _token_required(extra: dict[str, Any]) -> bool:

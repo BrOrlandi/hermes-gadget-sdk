@@ -20,7 +20,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from . import audio, opus, protocol
+from . import audio, opus, protocol, public_url
 from .face import ColourFace, ProfileFace
 from .store import DeviceStore
 
@@ -38,6 +38,7 @@ MIN_UTTERANCE_S = 0.25
 MAX_FRAME_BYTES = 1 << 20
 MAX_PENDING_DEVICES = 16     # unapproved devices the store keeps, in total...
 MAX_PENDING_PER_ADDRESS = 4  # ...and from one network address
+MAX_REACHED = 4              # the addresses paired devices reached the hub on, kept for status.json
 
 
 def short_utterance_notice(session: "DeviceSession") -> str:
@@ -297,6 +298,8 @@ class DeviceSession:
         # `welcome.profile`, else the one it named in hello. A gadget route doesn't change it.
         self.device_profile = "default"
         self.connected_at = time.time()
+        # The URL this connection's upgrade request says it used (Host or a proxy's headers), or None.
+        self.reached_url: str | None = None
         self.last_rx = time.monotonic()
         # What the device's screen is showing, for the Desktop page's live mirror (status.json):
         # ready, listening, thinking or speaking, with what Hermes heard and the reply so far.
@@ -480,6 +483,7 @@ class DeviceSession:
         self.paired, self.unpaired_reason = paired, reason
         if paired:
             self.hub.store.confirm(self.device_id)
+            self.hub.note_reached(self)
         extra = {"reason": reason} if reason else {}
         await self.send_json(protocol.message("paired" if paired else "unpaired", **extra))
         if not paired:
@@ -863,6 +867,8 @@ class DeviceHub:
         self._tasks: set[asyncio.Task] = set()  # DeviceSession.spawn, including devices already gone
         # Held back while a screen is dark, by device id: kept across reconnects.
         self._held: dict[str, _Held] = {}
+        # URL -> when a paired device last connected through it (newest MAX_REACHED kept).
+        self.reached: dict[str, float] = {}
 
     def _hold(self, device_id: str) -> _Held:
         return self._held.setdefault(device_id, _Held())
@@ -927,6 +933,34 @@ class DeviceHub:
         if request.path.split("?", 1)[0].rstrip("/") != self.path.rstrip("/"):
             return connection.respond(404, "Not a Hermes gadget endpoint\n")
         return None
+
+    def reached_by(self, ws) -> str | None:
+        """The URL a connection's upgrade request came in on, from its headers; None if they don't say."""
+        request = getattr(ws, "request", None)
+        headers = getattr(request, "headers", None)
+        if headers is None:
+            return None
+        try:
+            return public_url.from_headers(headers, str(getattr(request, "path", "") or self.path),
+                                           tls=self.ssl_context is not None)
+        except Exception:
+            return None
+
+    def note_reached(self, session: "DeviceSession") -> None:
+        """Remember the URL a paired device reached the hub on, for the Desktop page on another computer.
+        Only a device that authenticated and is paired counts: an unpaired connection's headers are not
+        taken as a hint."""
+        url = session.reached_url
+        if not url or not session.paired or session.closed:
+            return
+        self.reached.pop(url, None)
+        self.reached[url] = time.time()
+        while len(self.reached) > MAX_REACHED:
+            self.reached.pop(next(iter(self.reached)))
+
+    def reached_urls(self) -> list[dict]:
+        """The remembered URLs, newest first, as status.json records them."""
+        return [{"url": url, "at": at} for url, at in sorted(self.reached.items(), key=lambda kv: -kv[1])]
 
     @staticmethod
     def _address(ws) -> str:
@@ -1007,6 +1041,7 @@ class DeviceHub:
                 return
 
             session = DeviceSession(self, ws, hello)
+            session.reached_url = self.reached_by(ws)
             previous = self.sessions.get(session.device_id)
             self.sessions[session.device_id] = session
             if previous is not None:
@@ -1014,6 +1049,7 @@ class DeviceHub:
             session.paired = bool(await self.delegate.is_paired(session))
             if session.paired:
                 self.store.confirm(session.device_id)
+                self.note_reached(session)
             roster = self.delegate.profiles(session) if session.caps.get("profiles") is True else []
             if roster:
                 wanted = hello.get("profile")

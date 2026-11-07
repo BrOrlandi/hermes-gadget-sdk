@@ -90,3 +90,33 @@ def test_approval_over_the_connection_confirms_the_record(devserver, loop_thread
     loop_thread.run(session.set_paired(True))
     assert device_id not in hub.store.pending()
     assert hub.store.devices()[device_id]["pending"] is False
+
+
+def _connect_through_proxy(url: str, headers: dict) -> dict:
+    """Connect as a new device whose upgrade request carries a reverse proxy's headers."""
+    from websockets.sync.client import connect
+
+    key = secrets.token_bytes(32)
+    device_id = protocol.device_id_for_key(key)
+    with connect(url, subprotocols=[protocol.SUBPROTOCOL], open_timeout=5, additional_headers=headers) as ws:
+        ws.send(json.dumps(protocol.message("hello", proto=protocol.VERSION, device_id=device_id, name="proxied",
+                                            board="sim-320x240", caps={})))
+        json.loads(ws.recv(timeout=5))
+        ws.send(json.dumps(protocol.message("auth", key=base64.b64encode(key).decode())))
+        return json.loads(ws.recv(timeout=5))
+
+
+def test_the_hub_remembers_the_public_address_of_a_paired_device(devserver):
+    # A device behind Traefik: the hub sees the proxy's headers, and records the URL the device used
+    # (for the Hermes Desktop page on another computer), but only once the device is paired.
+    proxy = {"X-Forwarded-Proto": "https", "X-Forwarded-Host": "gadget.home.example.com"}
+    hub, brain, url = devserver(require_pairing=True)
+    assert _connect_through_proxy(url, proxy)["paired"] is False
+    assert hub.reached_urls() == []
+
+    hub, brain, url = devserver(require_pairing=False)
+    assert _connect_through_proxy(url, proxy)["paired"] is True
+    assert [r["url"] for r in hub.reached_urls()] == ["wss://gadget.home.example.com/gadget"]
+    # A device on this computer (loopback, no proxy) is no use to another computer: nothing new.
+    _enroll(url, "local")
+    assert [r["url"] for r in hub.reached_urls()] == ["wss://gadget.home.example.com/gadget"]

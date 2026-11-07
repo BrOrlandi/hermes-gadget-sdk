@@ -33,23 +33,23 @@ def test_status_round_trip(tmp_path):
     live_status.write(tmp_path, {DEVICE: {"online": True, "battery": {"battery_percent": 80}}}, now=1000.0)
     got = live_status.read(tmp_path, now=1010.0)
     assert got == {"running": True, "updated_at": 1000.0,
-                   "devices": {DEVICE: {"online": True, "battery": {"battery_percent": 80}}}}
+                   "devices": {DEVICE: {"online": True, "battery": {"battery_percent": 80}}}, "reached": []}
     assert not list(tmp_path.glob("*.tmp"))  # written to a temporary name, then replaced
 
 
 def test_status_missing_unreadable_stopped_or_stale_reads_as_not_running(tmp_path):
-    assert live_status.read(tmp_path) == {"running": False, "updated_at": None, "devices": {}}
+    assert live_status.read(tmp_path) == {"running": False, "updated_at": None, "devices": {}, "reached": []}
     (tmp_path / live_status.FILENAME).write_text("{not json")
     assert live_status.read(tmp_path)["running"] is False
 
     live_status.write(tmp_path, {}, running=False, now=1000.0)
-    assert live_status.read(tmp_path, now=1001.0) == {"running": False, "updated_at": 1000.0, "devices": {}}
+    assert live_status.read(tmp_path, now=1001.0) == {"running": False, "updated_at": 1000.0, "devices": {}, "reached": []}
 
     # A gateway that died without saying so: its last word goes stale and its devices with it.
     live_status.write(tmp_path, {DEVICE: {"online": True}}, now=1000.0)
     assert live_status.read(tmp_path, now=1000.0 + live_status.STALE_AFTER_S)["running"] is True
     stale = live_status.read(tmp_path, now=1000.0 + live_status.STALE_AFTER_S + 1)
-    assert stale == {"running": False, "updated_at": 1000.0, "devices": {}}
+    assert stale == {"running": False, "updated_at": 1000.0, "devices": {}, "reached": []}
     # Written in the future (a clock set back) or at Infinity: never fresh, so a gateway that then
     # stopped is not shown running for ever. A few seconds of skew still count.
     live_status.write(tmp_path, {DEVICE: {"online": True}}, now=2000.0)
@@ -57,10 +57,10 @@ def test_status_missing_unreadable_stopped_or_stale_reads_as_not_running(tmp_pat
     assert live_status.read(tmp_path, now=2000.0 - 60)["running"] is False
     for bad in ("Infinity", "NaN"):
         (tmp_path / live_status.FILENAME).write_text('{"running": true, "updated_at": %s, "devices": {}}' % bad)
-        assert live_status.read(tmp_path) == {"running": False, "updated_at": None, "devices": {}}
+        assert live_status.read(tmp_path) == {"running": False, "updated_at": None, "devices": {}, "reached": []}
     # An updated_at too large for a float is a malformed file, not an error for the route.
     (tmp_path / live_status.FILENAME).write_text('{"running": true, "updated_at": 1' + "0" * 400 + ', "devices": {}}')
-    assert live_status.read(tmp_path) == {"running": False, "updated_at": None, "devices": {}}
+    assert live_status.read(tmp_path) == {"running": False, "updated_at": None, "devices": {}, "reached": []}
 
 
 def test_battery_keeps_power_readings_only():

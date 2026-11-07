@@ -34,6 +34,9 @@ textarea.hg-input { height: auto; min-height: 64px; padding: 8px 12px; resize: v
 .hg-btn--primary { background: var(--ui-accent); border-color: transparent; color: var(--ui-accent-foreground, #fff); }
 .hg-btn--primary:hover { background: color-mix(in oklab, var(--ui-accent) 88%, #fff); }
 .hg-hintline { color: var(--ui-text-tertiary, #888); font-size: 11.5px; text-align: center; max-width: 460px; }
+.hg-urlline { display: flex; gap: 6px; align-items: center; justify-content: center; flex-wrap: wrap; max-width: 460px; color: var(--ui-text-tertiary, #888); font-size: 11.5px; }
+.hg-urlline code { font: 11.5px var(--font-mono, ui-monospace, monospace); color: var(--ui-text-secondary); overflow-wrap: anywhere; }
+.hg-linkbtn { appearance: none; border: 0; background: none; padding: 0; color: var(--ui-accent); font: inherit; cursor: pointer; text-decoration: underline; }
 .hg-error { color: #e5534b; font-size: 12px; text-align: center; max-width: 460px; }
 .hg-list { display: flex; flex-direction: column; gap: 10px; }
 .hg-dev { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: center; padding: 10px; border-radius: 12px; cursor: pointer;

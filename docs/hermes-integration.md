@@ -13,7 +13,7 @@ Hermes's gateway runs "platform adapters": Telegram, Slack and about twenty othe
 | `adapter.py` | `GadgetAdapter(BasePlatformAdapter)`: the Hermes-facing side |
 | `hub.py` | WebSocket server, auth, audio, images, actions (no Hermes imports) |
 | `tools.py` | `gadget_devices`, `gadget_display`, `gadget_action` |
-| `store.py`, `status.py`, `protocol.py`, `audio.py`, `textfmt.py`, `imaging.py` | Support modules (no Hermes imports) |
+| `store.py`, `status.py`, `public_url.py`, `protocol.py`, `audio.py`, `textfmt.py`, `imaging.py` | Support modules (no Hermes imports) |
 | `dashboard/` | The **Gadgets** tab of the Hermes web dashboard: `manifest.json`, the backend routes in `plugin_api.py`, and the tab's bundle in `dist/`, built from `src/` (see [The Gadgets tab](#the-gadgets-tab-in-the-hermes-dashboard)) |
 | `desktop/plugin.js`, `desk.py` | The **Gadgets** page of the Hermes desktop app, built from `desktop-src/`, and the queue that carries its cards and actions to the gateway (see [The Gadgets page in Hermes Desktop](#the-gadgets-page-in-hermes-desktop)) |
 
@@ -46,6 +46,7 @@ platforms:
       # stt_language: pt       # the language gadget speech is transcribed in; default: auto (see below)
       # tls_cert: /path/cert.pem   # serve wss://
       # tls_key: /path/key.pem
+      # public_url: wss://gadget.example.com/gadget  # where the Desktop page on another computer connects (see below)
 ```
 
 `battery_log: true` writes each paired device's battery readings to `<hermes home>/plugin-data/gadget/battery/<device id>.csv`: a row every 30 seconds, and at once when the power source changes, with the time, `battery_mv`, `battery_percent`, `charging`, `external_power` and `battery_present`. Devices that report no battery voltage or percentage add nothing. A file that reaches 8 MB moves to `<device id>.1.csv`, replacing the previous one. Use a log of a full discharge, from a full charge to shutdown with USB unplugged, to check or fit a board's voltage-to-percent estimate. It is off by default and the gateway needs a restart after changing it.
@@ -99,7 +100,7 @@ It needs nothing beyond the plugin: the tab appears once the plugin is enabled (
 | File | Written by | The tab reads |
 |---|---|---|
 | `devices.json` | the gateway, `hermes gadget pair` and `forget` | name, board, firmware, last seen, pending pairing. Device keys are never returned |
-| `status.json` | the running gateway | which devices are connected now, since when, and their battery readings (`battery_percent`, `battery_mv`, `charging`, `external_power`, `battery_present`); for the Desktop page, whether each is paired, its action names, and what its screen shows |
+| `status.json` | the running gateway | which devices are connected now, since when, and their battery readings (`battery_percent`, `battery_mv`, `charging`, `external_power`, `battery_present`); for the Desktop page, whether each is paired, its action names, and what its screen shows, and the URLs paired devices last connected through (`reached`) |
 | `desk/inbox/`, `desk/done/` | the Desktop page's routes, then the running gateway | the outcome of a card or action the page sent (see [The Gadgets page in Hermes Desktop](#the-gadgets-page-in-hermes-desktop)) |
 
 The gateway replaces `status.json` in one step (a temporary file, then a rename), so a reader never sees half of it. It rewrites the file within about half a second of a device connecting or leaving, of a change of pairing or profile, of a new battery percentage or power source, and of a change to what a screen shows (listening, thinking or speaking, the words heard, the reply), and at least every 30 seconds otherwise. A voltage change alone waits for the next write. A gateway that stops writes the file with no devices online; one that dies without doing so leaves a file older than 90 seconds, which the tab treats the same way. Either way the tab says the gateway is not running and shows no online state or battery.
@@ -111,7 +112,7 @@ The gateway replaces `status.json` in one step (a temporary file, then a rename)
 | `POST /api/plugins/gadget/pairing/{id}/approve` | Approves the code that device is showing, through Hermes's `PairingStore`, as `hermes gadget pair` does |
 | `POST /api/plugins/gadget/devices/{id}/card?title=&text=&seconds=` | Shows a card on a connected, paired device's screen; waits up to 8 seconds for the gateway's answer |
 | `POST /api/plugins/gadget/devices/{id}/action?name=&args=` | Runs one of the actions that device advertises, with `args` as a JSON object; waits up to 18 seconds |
-| `GET /api/plugins/gadget/info` | Whether the platform is enabled and the gateway running, and the local URL a gadget on this computer connects to |
+| `GET /api/plugins/gadget/info` | Whether the platform is enabled and the gateway running, whether it asks for a token, and the URL the Desktop page's gadget connects to (`url`), with how it was chosen (`url_source`: `local`, `config`, `seen` or `dashboard`; see [Which URL the page's gadget uses](#which-url-the-pages-gadget-uses)) |
 
 The web tab uses only `/devices`. The other routes are for the Desktop page, and like every plugin route they sit behind the dashboard's login.
 
@@ -121,9 +122,22 @@ The web tab uses only `/devices`. The other routes are for the Desktop page, and
 
 The Hermes desktop app gets a **Gadgets** page: a sidebar row, a route at `/gadgets`, and an **Open Gadgets** command in the palette. Turn the plugin on in **Capabilities › Plugins** if the page doesn't appear. It has three parts.
 
-- **A gadget in the window.** The page runs the device protocol itself, as a gadget on this computer with a round screen, a microphone and a speaker. It connects to the gateway on this computer, at its configured `host` (or `127.0.0.1` when the gateway listens on all interfaces), enrolls with a key it keeps in the page's storage, and pairs like any device: its code shows on its screen, and **Approve** next to it approves it. Hold the button or Space to talk, or type. Hermes answers on its screen and, when text-to-speech is set up, out loud. It advertises two actions the agent can call: `light.set`, a coloured glow around the screen, and `timer.start`, a countdown that ends with a chime. It needs the Gadget platform on and the gateway running. When the gateway requires a token (`GADGET_ACCESS_TOKEN` or `extra.access_token`), the page asks for it and keeps it in the page's storage. A card sent to stay until dismissed goes when you tap the screen.
+- **A gadget in the window.** The page runs the device protocol itself, as a gadget on this computer with a round screen, a microphone and a speaker. It connects to the gateway, at the URL shown under it (see [Which URL the page's gadget uses](#which-url-the-pages-gadget-uses)), enrolls with a key it keeps in the page's storage, and pairs like any device: its code shows on its screen, and **Approve** next to it approves it. Hold the button or Space to talk, or type. Hermes answers on its screen and, when text-to-speech is set up, out loud. It advertises two actions the agent can call: `light.set`, a coloured glow around the screen, and `timer.start`, a countdown that ends with a chime. It needs the Gadget platform on and the gateway running. When the gateway requires a token (`GADGET_ACCESS_TOKEN` or `extra.access_token`), the page asks for it and keeps it in the page's storage. A card sent to stay until dismissed goes when you tap the screen.
 - **Your gadgets, live.** Each known device with a small copy of its screen: listening, thinking or speaking, what Hermes heard and the reply so far. The running gateway writes this to `status.json`, and the page reads it about once a second.
 - **Controls.** Send a card to a connected device's screen, or run one of the actions it advertises, without asking the agent.
+
+### Which URL the page's gadget uses
+
+Hermes Desktop can run on another computer than the gateway, for example a laptop that reaches a Hermes on a home server through its dashboard's address. The gateway's bind address (`0.0.0.0:8765`) doesn't say how that computer reaches the gateway, so `/info` picks the URL in this order:
+
+1. **`local`**: the dashboard request came from this computer (a loopback address, with no `Forwarded`, `X-Forwarded-For`, `X-Forwarded-Host` or `X-Real-IP` header from a proxy). The gateway's configured `host`, or `127.0.0.1` when it listens on all interfaces, with its `port` and `path`, as before.
+2. **`config`**: `platforms.gadget.extra.public_url`, a `ws://` or `wss://` URL the owner sets, for a setup the next two steps get wrong.
+3. **`seen`**: where a paired device last reached the gateway. When a device connects, the gateway reads its WebSocket upgrade request: the `Host` header, or a reverse proxy's `Forwarded` (RFC 7239) or `X-Forwarded-Proto`, `X-Forwarded-Host` and `X-Forwarded-Port`, and the request path. It records the URL once the device has authenticated and is paired, never for an unpaired connection, and keeps the last four in `status.json` (`reached`). A loopback host is not recorded, since another computer can't use it. A watch connected through Traefik as `wss://gadget.example.com/gadget` gives the page that URL.
+4. **`dashboard`**: the dashboard's host name, as this request reached it (the same proxy headers count), with the gateway's `port` and `path`, and `wss` when the dashboard was reached over HTTPS or the gateway serves TLS. This works when the gateway's port is open on the same host as the dashboard.
+
+The page shows the URL it connects to and where it came from under the gadget. **Change** lets you type another `ws://` or `wss://` URL. The page keeps it in its storage, and it wins over all of the above until **Automatic** clears it.
+
+These headers come from the client that connected. The recorded URL is only a hint for the owner's own page, behind the dashboard's login, about where to connect. It grants nothing: a device that connects there still enrolls and waits for its pairing code to be approved, and the gateway accepts or refuses it exactly as before. Before a header value becomes part of a URL it must be a plain host name or IP address with an optional port. Anything else is ignored.
 
 **How a card reaches a device.** The page's routes run in the dashboard's process and the device connections in the gateway's. The route writes a request to `desk/inbox/` in the plugin's data folder and waits. The gateway checks that folder every 0.4 seconds, sends the card or action to the device, and writes the outcome to `desk/done/`. A request no gateway picks up within 30 seconds is dropped, and a route that gets no answer withdraws its request and says the gateway isn't running. The gateway skips a withdrawn request, so a card the page gave up on never shows late. At most 32 requests wait at once. A card's title is cut to 64 characters and its text to 600. Action arguments must be a JSON object of at most 2,000 characters. The gateway refuses a device that isn't connected, isn't paired, or doesn't advertise the action.
 

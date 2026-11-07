@@ -893,9 +893,16 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
 
         return json.dumps({k: brief(v) for k, v in devices.items()}, sort_keys=True)
 
+    def _reached(self) -> List[Dict[str, Any]]:
+        """The URLs paired devices reached the hub on, newest first (the Desktop page's hint). Kept
+        after the hub stops, so the status file a stopping gateway writes still has them."""
+        if self._hub:
+            self._last_reached = self._hub.reached_urls()
+        return list(getattr(self, "_last_reached", []))
+
     def _write_status(self, devices: Dict[str, Dict[str, Any]], *, running: bool = True) -> bool:
         try:
-            live_status.write(self._status_dir, devices, running=running)
+            live_status.write(self._status_dir, devices, running=running, reached=self._reached())
         except OSError as exc:
             (logger.debug if self._status_failing else logger.warning)(
                 "[%s] could not write %s: %s", self.name, live_status.FILENAME, exc)
@@ -913,7 +920,7 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
         while True:
             try:  # as the other watchers: one bad pass must not end the task, or the tab says "stopped"
                 devices = self._status_devices()
-                key = self._status_key(devices)
+                key = self._status_key(devices) + json.dumps([r["url"] for r in self._reached()])
                 if key != written_key or time.monotonic() - written_at >= live_status.REFRESH_S:
                     if self._write_status(devices):
                         written_key, written_at = key, time.monotonic()

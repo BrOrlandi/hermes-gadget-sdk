@@ -176,7 +176,10 @@ def api(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "gateway.pairing", pairing)
     app = FastAPI()
     app.include_router(module.router, prefix="/api/plugins/gadget")
-    return types.SimpleNamespace(client=TestClient(app), dir=tmp_path, module=module, approvals=approvals)
+    # Hermes Desktop on the gateway's own computer; `remote` is one on another computer.
+    return types.SimpleNamespace(client=TestClient(app, client=("127.0.0.1", 50000)),
+                                 remote=TestClient(app, client=("192.168.1.30", 50000)),
+                                 dir=tmp_path, module=module, approvals=approvals)
 
 
 def _enroll(directory, device_id=DEVICE, name="Desk", paired=True):
@@ -283,6 +286,7 @@ def test_info_says_where_a_local_gadget_connects(api, monkeypatch):
     got = api.client.get("/api/plugins/gadget/info").json()
     assert got["enabled"] is True and got["running"] is False
     assert got["url"] == "ws://127.0.0.1:9000/dev" and got["token_required"] is False
+    assert got["url_source"] == "local"
 
     config.load_config = lambda: {"platforms": {"gadget": {"extra": {"port": "nope"}}}}
     monkeypatch.setenv("GADGET_ACCESS_TOKEN", "t")
@@ -315,6 +319,183 @@ def test_info_sees_a_token_set_in_the_config(api, monkeypatch):
     got = api.client.get("/api/plugins/gadget/info").json()
     assert got["token_required"] is True and "s3cret" not in str(got)
 
+
+
+def _config(monkeypatch, extra):
+    cli = types.ModuleType("hermes_cli")
+    config = types.ModuleType("hermes_cli.config")
+    config.load_config = lambda: {"platforms": {"gadget": {"enabled": True, "extra": extra}}}
+    monkeypatch.setitem(sys.modules, "hermes_cli", cli)
+    monkeypatch.setitem(sys.modules, "hermes_cli.config", config)
+
+
+def _reached(directory, *urls, now=None):
+    now = time.time() if now is None else now
+    live_status.write(directory, {}, now=now, reached=[{"url": u, "at": now - i} for i, u in enumerate(urls)])
+
+
+def test_info_on_the_gateways_computer_stays_local(api, monkeypatch):
+    # Desktop next to the gateway: loopback, whatever devices and the config say about elsewhere.
+    _config(monkeypatch, {"public_url": "wss://gadget.example.com/gadget"})
+    _reached(api.dir, "wss://seen.example.com/gadget")
+    got = api.client.get("/api/plugins/gadget/info").json()
+    assert (got["url"], got["url_source"]) == ("ws://127.0.0.1:8765/gadget", "local")
+
+
+def test_info_for_another_computer_offers_where_a_paired_gadget_connected(api, monkeypatch):
+    _config(monkeypatch, {})
+    _reached(api.dir, "wss://gadget.home.example.com/gadget", "ws://192.168.1.20:8765/gadget")
+    got = api.remote.get("/api/plugins/gadget/info", headers={"Host": "hermes.home.example.com"}).json()
+    assert (got["url"], got["url_source"]) == ("wss://gadget.home.example.com/gadget", "seen")
+
+
+def test_info_behind_a_proxy_on_the_gateways_computer_is_not_local(api, monkeypatch):
+    # A reverse proxy on the same computer makes every request come from loopback; its forwarding
+    # headers say the user is elsewhere.
+    _config(monkeypatch, {})
+    _reached(api.dir, "wss://gadget.home.example.com/gadget")
+    got = api.client.get("/api/plugins/gadget/info",
+                         headers={"X-Forwarded-For": "203.0.113.9", "Host": "hermes.example.com"}).json()
+    assert (got["url"], got["url_source"]) == ("wss://gadget.home.example.com/gadget", "seen")
+
+
+def test_info_config_public_url_wins_over_what_was_seen(api, monkeypatch):
+    _config(monkeypatch, {"public_url": " wss://gadget.example.com:8443/gadget "})
+    _reached(api.dir, "wss://seen.example.com/gadget")
+    got = api.remote.get("/api/plugins/gadget/info").json()
+    assert (got["url"], got["url_source"]) == ("wss://gadget.example.com:8443/gadget", "config")
+    # A public_url that isn't a ws:// or wss:// URL is ignored, not passed to the page.
+    _config(monkeypatch, {"public_url": "javascript:alert(1)"})
+    assert api.remote.get("/api/plugins/gadget/info").json()["url_source"] == "seen"
+
+
+@pytest.mark.parametrize("headers, extra, url", [
+    ({"Host": "hermes.lan:9119"}, {}, "ws://hermes.lan:8765/gadget"),
+    ({"Host": "hermes.example.com", "X-Forwarded-Proto": "https"}, {}, "wss://hermes.example.com:8765/gadget"),
+    ({"Host": "internal:9119", "Forwarded": 'for=1.2.3.4;proto=https;host="hermes.example.com"'}, {},
+     "wss://hermes.example.com:8765/gadget"),
+    ({"Host": "10.0.0.5:9119"}, {"port": 9000, "path": "/dev", "tls_cert": "/c.pem"}, "wss://10.0.0.5:9000/dev"),
+])
+def test_info_with_nothing_seen_guesses_from_the_dashboards_address(api, monkeypatch, headers, extra, url):
+    _config(monkeypatch, extra)
+    got = api.remote.get("/api/plugins/gadget/info", headers=headers).json()
+    assert (got["url"], got["url_source"]) == (url, "dashboard")
+
+
+def test_info_ignores_a_malformed_seen_url(api, monkeypatch):
+    _config(monkeypatch, {})
+    live_status.write(api.dir, {}, reached=[{"url": "wss://evil.example.com/gadget?x=<script>", "at": 5},
+                                           {"url": "https://x/gadget", "at": 6}, "junk"])
+    got = api.remote.get("/api/plugins/gadget/info", headers={"Host": "hermes.lan"}).json()
+    assert (got["url"], got["url_source"]) == ("ws://hermes.lan:8765/gadget", "dashboard")
+
+
+# -- where a gadget reached the gateway ----------------------------------------------------------
+
+
+@pytest.mark.parametrize("headers, path, tls, url", [
+    ({"Host": "gadget.home.example.com"}, "/gadget", False, "ws://gadget.home.example.com/gadget"),
+    ({"Host": "192.168.1.20:8765"}, "/gadget?x=1", False, "ws://192.168.1.20:8765/gadget"),
+    ({"Host": "hermes.lan:8765"}, "/gadget", True, "wss://hermes.lan:8765/gadget"),
+    # Traefik, Caddy, nginx: the scheme, and maybe the host and port, the client used.
+    ({"Host": "gadget.home.example.com", "X-Forwarded-Proto": "https", "X-Forwarded-Host": "gadget.home.example.com",
+      "X-Forwarded-Port": "443"}, "/gadget", False, "wss://gadget.home.example.com/gadget"),
+    ({"Host": "10.0.0.2:8765", "X-Forwarded-Proto": "https,http", "X-Forwarded-Host": "Gadget.Example.com, inner"},
+     "/gadget", False, "wss://gadget.example.com/gadget"),
+    ({"Host": "10.0.0.2:8765", "X-Forwarded-Proto": "https", "X-Forwarded-Host": "gadget.example.com",
+      "X-Forwarded-Port": "8443"}, "/gadget", False, "wss://gadget.example.com:8443/gadget"),
+    ({"Host": "10.0.0.2:8765", "Forwarded": 'for=192.0.2.60;proto=https;host="gadget.example.com:8443", for=10.0.0.1'},
+     "/gadget", False, "wss://gadget.example.com:8443/gadget"),
+    ({"Host": "[2001:db8::5]:8765"}, "/gadget", False, "ws://[2001:db8::5]:8765/gadget"),
+    ({"Host": "gadget.example.com:80"}, "/gadget", False, "ws://gadget.example.com/gadget"),
+])
+def test_the_url_a_device_used_comes_from_its_request(headers, path, tls, url):
+    from hermes_gadget_plugin import public_url
+
+    assert public_url.from_headers(headers, path, tls=tls) == url
+
+
+@pytest.mark.parametrize("headers", [
+    {},
+    {"Host": "127.0.0.1:8765"},                  # loopback: no use to another computer
+    {"Host": "localhost:8765"},
+    {"Host": "[::1]:8765"},
+    {"Host": "evil.com/x?y=1"},                  # never more than a host and a port
+    {"Host": "a b"},
+    {"Host": "user@evil.com"},
+    {"Host": "evil.com:99999"},
+    {"Host": "[not-ipv6]:8765"},
+    {"Host": "gadget.example.com", "X-Forwarded-Host": "<script>"},
+])
+def test_a_request_that_doesnt_say_gives_no_url(headers):
+    from hermes_gadget_plugin import public_url
+
+    assert public_url.from_headers(headers, "/gadget") is None
+
+
+def test_stored_urls_are_checked_when_read_back():
+    from hermes_gadget_plugin import public_url
+
+    assert public_url.valid("wss://gadget.example.com/gadget") == "wss://gadget.example.com/gadget"
+    assert public_url.valid("wss://gadget.example.com:443/gadget") == "wss://gadget.example.com/gadget"
+    for bad in (None, 5, "", "https://x/gadget", "wss://x/gadget?q", "wss://x", "wss://u@x/g", "wss://x/" + "a" * 400):
+        assert public_url.valid(bad) is None, bad
+    assert public_url.latest([{"url": "ws://a.lan/g", "at": 1}, {"url": "ws://b.lan/g", "at": 3},
+                              {"url": "bad", "at": 9}, {"url": "ws://c.lan/g", "at": 10 ** 400}, "x"]) == "ws://b.lan/g"
+    assert public_url.latest([]) is None
+
+
+class _Request:
+    def __init__(self, headers, path="/gadget"):
+        self.headers, self.path = headers, path
+
+
+def test_the_hub_remembers_only_where_paired_devices_connected():
+    from hermes_gadget_plugin import hub as hubmod
+    from hermes_gadget_plugin.hub import DeviceHub, DeviceSession
+
+    hub = DeviceHub(store=None, delegate=None)
+
+    def session(host, device=DEVICE, paired=True):
+        ws = _Wire()
+        ws.request = _Request({"Host": host, "X-Forwarded-Proto": "https"})
+        s = DeviceSession(hub, ws, {"device_id": device})
+        s.reached_url, s.paired = hub.reached_by(ws), paired
+        return s
+
+    hub.note_reached(session("stranger.example.com", paired=False))  # authenticated, not approved
+    assert hub.reached_urls() == []
+    hub.note_reached(session("gadget.example.com"))
+    hub.note_reached(session("127.0.0.1:8765"))  # loopback: nothing to remember
+    assert [r["url"] for r in hub.reached_urls()] == ["wss://gadget.example.com/gadget"]
+    for i in range(hubmod.MAX_REACHED + 2):
+        hub.note_reached(session(f"g{i}.example.com"))
+    hub.note_reached(session("gadget.example.com"))
+    urls = [r["url"] for r in hub.reached_urls()]
+    assert len(urls) == hubmod.MAX_REACHED and urls[0] == "wss://gadget.example.com/gadget"
+    assert hub.reached_by(_Wire()) is None  # a connection with no request to read
+
+
+def test_approving_a_waiting_device_remembers_where_it_connected(tmp_path):
+    from hermes_gadget_plugin.hub import DeviceHub, DeviceSession
+
+    hub = DeviceHub(store=_enroll(tmp_path, paired=False), delegate=None)
+    ws = _Wire()
+    ws.request = _Request({"Host": "gadget.example.com:8765"})
+    s = DeviceSession(hub, ws, {"device_id": DEVICE})
+    s.reached_url = hub.reached_by(ws)
+    hub.note_reached(s)
+    assert hub.reached_urls() == []
+    asyncio.run(s.set_paired(True))
+    assert [r["url"] for r in hub.reached_urls()] == ["ws://gadget.example.com:8765/gadget"]
+
+
+def test_status_keeps_where_devices_connected_even_once_stale(tmp_path):
+    live_status.write(tmp_path, {}, now=1000.0, reached=[{"url": "wss://g.example.com/gadget", "at": 999.0}])
+    got = live_status.read(tmp_path, now=1000.0 + live_status.STALE_AFTER_S + 60)
+    assert got["running"] is False and got["reached"] == [{"url": "wss://g.example.com/gadget", "at": 999.0}]
+    (tmp_path / live_status.FILENAME).write_text('{"running": true, "updated_at": 1, "devices": {}, "reached": {"x": 1}}')
+    assert live_status.read(tmp_path)["reached"] == []
 
 # -- what the screen shows ---------------------------------------------------------------------
 
